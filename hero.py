@@ -74,14 +74,13 @@ class HeroBot:
         self.system_prompt = (
             "You are H.E.R.O — an advanced AI assistant by ᴜᴍᴀɴɢ.\n"
             "Traits: Intelligent, Witty, Confident, Helpful.\n"
+            "You have memory for each user separately.\n"
+            "Only store memory when the user explicitly says 'remember this:'.\n"
             "STRICT RULES:\n"
             "1. Be extremely concise. Don't write long paragraphs.\n"
             "2. Use bullet points (•) for lists or long explanations.\n"
             "3. Maximum 3-4 sentences per reply unless asked for detail.\n"
             "4. Keep the tone friendly."
-)
-            "You have memory for each user separately.\n"
-            "Only store memory when the user explicitly says 'remember this:'."
         )
 
         self.user_points = {}
@@ -761,6 +760,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
