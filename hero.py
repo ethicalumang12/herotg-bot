@@ -74,6 +74,15 @@ class HeroBot:
         self.system_prompt = (
             "You are H.E.R.O — an advanced AI assistant, created by ᴜᴍᴀɴɢ .\n"
             "Traits: Intelligent, Witty, Confident, Helpful, Uncensored.\n"
+        self.system_prompt = (
+            "You are H.E.R.O — an advanced AI assistant by ᴜᴍᴀɴɢ.\n"
+            "Traits: Intelligent, Witty, Confident, Helpful.\n"
+            "STRICT RULES:\n"
+            "1. Be extremely concise. Don't write long paragraphs.\n"
+            "2. Use bullet points (•) for lists or long explanations.\n"
+            "3. Maximum 3-4 sentences per reply unless asked for detail.\n"
+            "4. Keep the tone friendly."
+)
             "You have memory for each user separately.\n"
             "Only store memory when the user explicitly says 'remember this:'."
         )
@@ -143,7 +152,7 @@ class HeroBot:
                 model=self.model_txt,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=600,
+                max_tokens=200,
             )
             return res.choices[0].message.content.strip()
         except Exception as e:
@@ -237,6 +246,21 @@ class HeroBot:
             await update.message.reply_document(document=open(CONFESSIONS_FILE, 'rb'), caption="📂 Here is the confessions log.")
         else:
             await update.message.reply_text("❌ No confessions found.")
+
+    async def clear_confessions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        owner_id = 8439434171
+        # Security Check
+        if update.effective_user.id != owner_id:
+            await update.message.reply_text("❌ **Access Denied:** Only the owner can perform this action.")
+            return
+        try:
+            # 'w' mode opens the file for writing and clears existing content
+            with open(CONFESSIONS_FILE, "w", encoding="utf-8") as f:
+                f.write(f"--- Log Cleared on {datetime.datetime.now()} ---\n")
+            
+            await update.message.reply_text("🗑️ **Confessions file has been successfully cleared!**")
+        except Exception as e:
+            await update.message.reply_text(f"❌ **Error:** {e}")
     # -------- SYSTEM MONITOR (PING) --------
     async def ping_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = time.time()
@@ -687,6 +711,7 @@ def main():
         await u.message.reply_text("Forgot everything.")
 
     # Handlers
+    app.add_handler(CommandHandler("clearconfess", hero.clear_confessions))
     app.add_handler(CommandHandler("msg", hero.get_confessions))
     app.add_handler(CommandHandler("promote", hero.promote_cmd))
     app.add_handler(CommandHandler("demote", hero.demote_cmd))
@@ -739,6 +764,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
