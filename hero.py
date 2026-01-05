@@ -167,16 +167,30 @@ class HeroBot:
             return "❌ Audio transcription failed."
     # -------- DOWNLOADER LOGIC --------
     async def auto_download(self, url: str, update: Update):
-        msg = await update.message.reply_text("⏳ **Detecting Link... Downloading...**")
-        ydl_opts = {'format': 'best', 'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s', 'quiet': True}
+        msg = await update.message.reply_text("⏳ **Processing Link...**")
+        
+        # YT Shorts aur Reels dono ke liye best format settings
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+            'merge_output_format': 'mp4',
+            'quiet': True,
+        }
+        
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = await asyncio.to_thread(ydl.extract_info, url, download=True)
                 filename = ydl.prepare_filename(info)
+                
+                # Extension fix (agar merge ke baad badal jaye)
+                if not os.path.exists(filename):
+                    filename = os.path.splitext(filename)[0] + ".mp4"
+
                 await update.message.reply_video(video=open(filename, 'rb'), caption=f"✅ {info.get('title')}")
                 os.remove(filename)
                 await msg.delete()
-        except: await msg.edit_text("❌ Download Failed.")
+        except Exception:
+            await msg.edit_text("❌ Download Failed. Link private ho sakta hai ya file badi hai.")
     # -------- UTILITIES --------
     async def weather_info(self, city: str) -> str:
         if not self.weather_key: return "❌ Weather API key not set."
@@ -725,5 +739,6 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
