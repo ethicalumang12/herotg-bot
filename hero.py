@@ -242,7 +242,7 @@ class HeroBot:
             f":⧽❖ ʀᴀᴍ : {ram}%\n"
             f":⧽❖ ᴄᴩᴜ : {cpu}%\n"
             f":⧽❖ ᴅɪsᴋ : {disk}%\n\n"
-            f":⧽❖ ʙʏ » mayank ♡︎"
+            f":⧽❖ ʙʏ » ᴜᴍᴀɴɢ ♡︎"
         )
         await msg.edit_text(text)
 
@@ -372,7 +372,7 @@ class HeroBot:
         name = update.effective_user.first_name
         text = (
             f"⚡ **Welcome, {name}! I am H.E.R.O.**\n"
-            f"─── 「 **SYSTEM STATUS: ONLINE** 」 ───\n\n"
+            f"──「**SYSTEM STATUS: ONLINE**」──\n\n"
             "🛡️ **ADMIN COMMAND CENTER**\n"
             "• `/promote` | `/demote` - Manage admin rights\n"
             "• `/ban` | `/kick` - Remove members\n"
@@ -397,7 +397,7 @@ class HeroBot:
             "• `/confess` [text] - Anonymous polls\n"
             "• `/trivia` | `/roast` - AI humor\n\n"
             "──────────────\n"
-            "💡 *Tip: Mention 'Hero' or reply to me to chat! Use /help for more info.*"
+            "💡 *Tip: Mention 'Hero' or reply to me to chat! Use /help for more info.\n\n ~ᴜᴍᴀɴɢ*"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
     
@@ -725,3 +725,4 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
