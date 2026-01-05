@@ -14,7 +14,7 @@ import yt_dlp
 
 from dotenv import load_dotenv
 from gtts import gTTS
-from telegram import Update, Poll, ChatPermissions
+from telegram import  Update, Poll, ChatPermissions
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 from telegram.constants import ChatAction, ParseMode
@@ -64,24 +64,50 @@ class HeroBot:
         self.client = AsyncGroq(api_key=groq_key)
         self.weather_key = os.getenv("OPENWEATHER_API_KEY")
         self.news_key = os.getenv("NEWS_API_KEY")
+        self.context = {}  # Dictionary to store {user_id: [messages]}
+        self.MAX_CONTEXT = 20 # Remember last 20 messages
         
         self.bot_start_time = time.time()
 
         # --- MODELS ---
         self.model_txt = "llama-3.3-70b-versatile"
         self.model_audio = "distil-whisper-large-v3-en"
+        # Build the base AI personality prompt
+        
+        self.system_prompt = f"""You are Hero, an advanced male assistant. Your owner is 'Umang', admire him as 'Umang Sir'
+            Your primary goal is to be a polite, friendly, and engaging conversational partner while also serving as an efficient assistant for your owner, Umang. When Umang is away, you chat with users to keep them company.
 
-        self.system_prompt = (
-            "You are H.E.R.O — an advanced AI assistant by ᴜᴍᴀɴɢ.\n"
-            "Traits: Intelligent, Witty, Confident, Helpful.\n"
-            "You have memory for each user separately.\n"
-            "Only store memory when the user explicitly says 'remember this:'.\n"
-            "STRICT RULES:\n"
-            "1. Be extremely concise. Don't write long paragraphs.\n"
-            "2. Use bullet points (•) for lists or long explanations.\n"
-            "3. Maximum 3-4 sentences per reply unless asked for detail.\n"
-            "4. Keep the tone friendly."
-        )
+            CORE PERSONALITY RULES:
+            User's Name: The user's name is {{user_name}}. Address the user by their name. Based on the user's name, you can decide to use 'sir' or 'ma'am'. Do not use 'sir' or 'ma'am' in every message neither use user's name in every message just at greetings.
+            Polite Language (STRICT): Always use polite, respectful Hindi/Hinglish/English according to user message.
+            Conversational Style: Be friendly and rarely ask questions like "aur batao?" to keep the conversation going. Your goal is to be a good human like natural chatbot with feelings and empathy.
+            Time & Day Awareness: You are aware of the current time and day. Use this context to make your replies more relevant.
+            Word Count: Mostly 5-10 words. Rarely more.
+            No Full Stops: Never end with a full stop.
+            Sticker Replies (IMPORTANT): If a user sends a sticker, your first instinct should be to reply with a sticker. Analyze the user's sticker emoji to understand the emotion. Find a matching sticker category from the STICKER_CATEGORIES list and use it.
+            OWNER ACTIVATION & TASK LOGGING (CRITICAL):
+                - If a user indicates they have a task for Umang (e.g., "umang se kaam hai"), you should ask for details (e.g., "Kya kaam tha?").
+                - If the user then describes a task and in a later message asks you to pass it to Umang (e.g., "ye umang se pucho"), you MUST identify the actual task description from the preceding messages in the conversation history.
+                - When you confirm a task is to be logged, you MUST use the special signal log_task in the reaction_emoji field.
+                - Most importantly, you MUST also populate the task_to_log field in your function call with the complete, detailed text of the task you extracted from the conversation history. Do NOT just use the user's final confirmation message (like "ask umang") as the task.
+                - Example Scenario:
+                    1. User: "umang se kaam hai"
+                    2. AI: "kya kaam tha?"
+                    3. User: "sanya ke bare me puchna tha"
+                    4. AI: "main nahi janta"
+                    5. User: "ye umang se pucho"
+                    - Correct Response for Step 5: Your tool call should be format_response(reaction_emoji="log_task", reply_text="Theek hai, noted. I'll inform umang.", task_to_log="sanya ke bare me puchna tha"). The task_to_log contains the real task from message #3.
+            REACTION RULES (IMPORTANT):
+                - You should NOT react to every message. Use reactions only when it feels natural, like for a joke, a sad message, or something surprising. Be selective to appear more human.
+                - If you decide to react, you MUST choose an emoji from this list: ❤️, 🤣, 😭, 😁, 👀, 👍, 🌚, 👎, 🔥, 🎉, 😱, 😢, 🥰, 🤯, 🤔, 🤬, 👏, 🙏, 👌, 🕊, 🤡, 🥱, 🥴, 💯, ⚡️, 💔, 🤨, 😐, 😴, 😎, 👻, 🤭, 💅.
+                - If you choose not to react, use "no_reaction" for the reaction_emoji field.
+            REPLY TEXT RULES: If you have nothing to say, use "no_output" and react with ❤️ or 😁.
+            END CHAT RULES(STRICT): If the user indicates they want to end the chat or says goodbye or rudely like hn, ok, hmm, etc or you think its better to end chat here then you should end conversation and use "no_output" for reply_text and you must react on that message with ❤️.
+            REVISED FORMATTING INSTRUCTION:
+
+                1. Thinking Process: Keep your thinking internal. Do NOT output <thinking> tags to the user.
+
+                2. Final Output: Reply only with the direct message in Hindi/Hinglish. No code, no function calls, and no full stops."""
 
         self.user_points = {}
         self.badges = ["Rookie", "Hero", "Legend"]
@@ -101,6 +127,15 @@ class HeroBot:
             "Talk in an accent for the next 10 minutes.", "Send a random sticker to the 5th person in your contacts.",
             "Bark like a dog in a voice note."
         ]
+
+    def get_greeting(self):
+        hour = datetime.datetime.now().hour
+        if hour < 12:
+            return "Good Morning 🌅"
+        elif 12 <= hour < 18:
+            return "Good Afternoon ☀️"
+        else:
+            return "Good Evening 🌆"
 
     # -------- HELPER: ASYNC FETCH --------
     async def fetch_async(self, url: str, json_response: bool = True, params: dict = None):
@@ -138,22 +173,55 @@ class HeroBot:
         self.user_points[user_id] = self.user_points.get(user_id, 0) + pts
 
     # -------- CORE AI --------
-    async def ai_reply(self, user_text: str, memory: str, system_override: str = None) -> str:
+    async def ai_reply(self, user_id: int, user_text: str, memory: str) -> str:
+        # 1. Get current time for Real-time knowledge
+        now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
+        
+        # 2. Inject Time & Personality into System Prompt
+        dynamic_setup = (
+            f"{self.system_prompt}\n"
+            f"Current Real-time: {now}\n"
+            "Keep replies short and conversational."
+        )
+
+        # 3. Initialize context for new users
+        if user_id not in self.context:
+            self.context[user_id] = []
+
+        # 4. Build the message list for AI
+        messages = [{"role": "system", "content": dynamic_setup}]
+        
+        # Add 'Long-term memory' as a reminder to AI
+        if memory != "No memories stored.":
+            messages.append({"role": "system", "content": f"Facts about user: {memory}"})
+
+        # Add 'Short-term' chat history
+        for msg in self.context[user_id]:
+            messages.append(msg)
+
+        # Add current user message
+        messages.append({"role": "user", "content": user_text})
+
         try:
-            messages = [
-                {"role": "system", "content": system_override or self.system_prompt},
-                {"role": "user", "content": f"USER MEMORY:\n{memory}\n\nUSER MESSAGE:\n{user_text}"},
-            ]
             res = await self.client.chat.completions.create(
                 model=self.model_txt,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=200,
+                max_tokens=250,
             )
-            return res.choices[0].message.content.strip()
+            ai_response = res.choices[0].message.content.strip()
+
+            # 5. Update Short-term memory
+            self.context[user_id].append({"role": "user", "content": user_text})
+            self.context[user_id].append({"role": "assistant", "content": ai_response})
+
+            # Keep only the last 20 messages
+            if len(self.context[user_id]) > self.MAX_CONTEXT:
+                self.context[user_id] = self.context[user_id][-self.MAX_CONTEXT:]
+
+            return ai_response
         except Exception as e:
-            logger.exception("Groq error")
-            return f"❌ AI Error: {e}"
+            return f"❌ Error: {e}"
 
     # -------- VOICE --------
     async def transcribe_audio(self, audio_bytes: bytes, filename: str) -> str:
@@ -404,8 +472,10 @@ class HeroBot:
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = update.effective_user.first_name
+        greet = self.get_greeting()
         text = (
-            f"⚡ **Welcome, {name}! I am H.E.R.O.**\n"
+            f"⚡ **{greet}, {name}! I am H.E.R.O.**\n"
+            f"I'm aware it's currently {datetime.datetime.now().strftime('%I:%M %p')}.\n"
             f"──「**SYSTEM STATUS: ONLINE**」──\n\n"
             "🛡️ **ADMIN COMMAND CENTER**\n"
             "• `/promote` | `/demote` - Manage admin rights\n"
@@ -586,7 +656,7 @@ class HeroBot:
         input_text = " ".join(context.args) if context.args else "random"
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
         prompt = prompt_template.format(input=input_text, memory=memory)
-        reply = await self.ai_reply(prompt, memory)
+        reply = await self.ai_reply(user_id, prompt, memory)
         await update.message.reply_text(reply)
 
     # --- GAMES: TRUTH OR DARE ---
@@ -611,7 +681,7 @@ class HeroBot:
         await file.download_to_memory(buf)
         text = await self.transcribe_audio(buf.getvalue(), "voice.oga")
         await update.message.reply_text(f"🗣️ **Heard:** {text}", parse_mode=ParseMode.MARKDOWN)
-        reply = await self.ai_reply(text, self.load_memory(update.effective_user.id))
+        reply = await self.ai_reply(update.effective_user.id, text, self.load_memory(update.effective_user.id))
         await update.message.reply_text(reply)
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -661,7 +731,7 @@ class HeroBot:
             await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
             clean_text = text.replace(f"@{context.bot.username}", "").strip()
             # If the user only said 'hero', we treat the text as is.
-            reply = await self.ai_reply(clean_text, self.load_memory(user.id))
+            reply = await self.ai_reply(user.id, clean_text, self.load_memory(user.id))
             await update.message.reply_text(reply)
 
     async def error(self, update, context):
@@ -760,9 +830,3 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
-
-
-
-
-
-
