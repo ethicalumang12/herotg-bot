@@ -656,7 +656,7 @@ def main():
     async def art_wrapper(u,c): 
         d = " ".join(c.args) or "art"
         r = await hero.generate_art(d)
-        if isinstance(r, bytes): await u.message.reply_photo(r, caption=d+'\n ~MAYANK')
+        if isinstance(r, bytes): await u.message.reply_photo(r, caption=d+'\n ~ᴜᴍᴀɴɢ')
         else: await u.message.reply_text(r)
         
     async def voice_wrapper(u,c):
@@ -725,4 +725,5 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
