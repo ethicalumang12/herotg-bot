@@ -28,7 +28,21 @@ from telegram.ext import (
 )
 
 from groq import AsyncGroq
+from flask import Flask
+from threading import Thread
 
+app = Flask('')
+@app.route('/')
+def home():
+    return "I am alive!"
+
+def run():
+    # Render default port 10000 use karta hai
+    app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 # ---------------- ENV ----------------
 load_dotenv()
 
@@ -626,7 +640,7 @@ def main():
     if not tg_token or not groq_key:
         print("❌ Keys missing in .env")
         sys.exit(1)
-
+    keep_alive() # Isse server start ho jayega
     hero = HeroBot(groq_key)
     
     request_params = HTTPXRequest(
@@ -709,4 +723,5 @@ def main():
 if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     main()
