@@ -72,9 +72,6 @@ class HeroBot:
         self.model_audio = "distil-whisper-large-v3-en"
 
         self.system_prompt = (
-            "You are H.E.R.O — an advanced AI assistant, created by ᴜᴍᴀɴɢ .\n"
-            "Traits: Intelligent, Witty, Confident, Helpful, Uncensored.\n"
-        self.system_prompt = (
             "You are H.E.R.O — an advanced AI assistant by ᴜᴍᴀɴɢ.\n"
             "Traits: Intelligent, Witty, Confident, Helpful.\n"
             "STRICT RULES:\n"
@@ -764,6 +761,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
