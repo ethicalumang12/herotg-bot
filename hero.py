@@ -305,7 +305,7 @@ async def auto_download(self, url: str, update: Update):
             if os.path.exists(filepath): os.remove(filepath)
             if os.path.exists(filepath + ".mp4"): os.remove(filepath + ".mp4")
                 
-    async def weather_info(self, city : str):
+    async def weather_info(self, city : str) -> str:
         if not self.weather_key: 
             return "❌ Weather API key not set."
         url = "http://api.openweathermap.org/data/2.5/weather"
