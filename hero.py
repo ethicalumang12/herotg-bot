@@ -305,8 +305,9 @@ async def auto_download(self, url: str, update: Update):
             if os.path.exists(filepath): os.remove(filepath)
             if os.path.exists(filepath + ".mp4"): os.remove(filepath + ".mp4")
                 
-    async def weather_info(self, city: str) -> str:
-        if not self.weather_key: return "❌ Weather API key not set."
+    async def weather_info(self, city) -> str:
+        if not self.weather_key: 
+            return "❌ Weather API key not set."
         url = "http://api.openweathermap.org/data/2.5/weather"
         try:
             res = await self.fetch_async(url, params={"q": city, "appid": self.weather_key, "units": "metric"})
@@ -1188,6 +1189,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
