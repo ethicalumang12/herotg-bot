@@ -58,10 +58,14 @@ logger = logging.getLogger(__name__)
 
 MEMORY_DIR, DOWNLOAD_DIR = "memory","downloads"
 CONFESSIONS_FILE = "confessions.txt"
+
+api_id = 24365702
+api_hash = "d78348a81d41643f51095deaffc1dc90"
+bot_token = "8075078295:AAFkAvadpHnypIm_jnUbXuq9S2XE-PYvbu0"
 os.makedirs(MEMORY_DIR, exist_ok=True)
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
-tele_client = TelegramClient("hero_session", API_ID, API_HASH)
+tele_client = TelegramClient("hero_session", api_id, api_hash)
 # --- UPLOADER LOGIC ---
 async def upload_large_file(chat_id, filepath, caption):
     """Uses Telethon to bypass the 50MB limit (up to 2GB)"""
@@ -1216,6 +1220,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
