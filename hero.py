@@ -30,19 +30,19 @@ from telegram.ext import (
 from groq import AsyncGroq
 from flask import Flask
 from threading import Thread
-import threading
 
-app_flask = Flask(__name__)
+app_flask = Flask('')
 @app_flask.route('/')
 def home():
     return "I am alive!"
 
-def run_flask():
+def run():
     port = int(os.environ.get("PORT",8080))
     app_flask.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 # ---------------- ENV ----------------
 load_dotenv()
@@ -1197,6 +1197,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
