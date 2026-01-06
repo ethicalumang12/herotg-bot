@@ -26,6 +26,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telethon import TelegramClient
 
 from groq import AsyncGroq
 from flask import Flask
@@ -1199,6 +1200,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
