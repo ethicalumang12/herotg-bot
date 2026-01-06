@@ -76,20 +76,6 @@ async def upload_large_file(chat_id, filepath, caption):
             caption=caption, 
             supports_streaming=True
         )
-# --- MAIN DOWNLOADER CLASS ---
-
-# --- TELEGRAM BOT HANDLERS ---
-hero = HeroBot()
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-    
-    text = update.message.text
-    if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
-        await hero.auto_download(text, update)
-    else:
-        await update.message.reply_text("🤖 I am HERO. Send me a video link to download!")
 
 # ---------------- BOT CLASS ----------------
 class HeroBot:
@@ -1224,6 +1210,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
