@@ -967,8 +967,17 @@ class HeroBot:
             await update.message.reply_text("❌ Mic error or transcription failed.")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message:
+            return
+
+        if update.message.photo:
+        # Handle photo here
+            await update.message.reply_text("I see you sent a photo!")
+            return
+
+        if update.message.text:
+            text = update.message.text.lower()
         user = update.effective_user
-        text = update.message.text.lower()
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
@@ -1199,6 +1208,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
