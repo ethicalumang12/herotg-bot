@@ -76,7 +76,9 @@ async def upload_large_file(chat_id, filepath, caption):
             caption=caption, 
             supports_streaming=True
         )
-
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
+hero = HeroBot(groq_key=GROQ_KEY)
 # ---------------- BOT CLASS ----------------
 class HeroBot:
     def __init__(self, groq_key: str):
@@ -84,7 +86,7 @@ class HeroBot:
         self.weather_key = os.getenv("OPENWEATHER_API_KEY")
         self.news_key = os.getenv("NEWS_API_KEY")
         self.context = {}  # Dictionary to store {user_id: [messages]}
-        self.MAX_CONTEXT = 50 # Remember last 20 messages
+        self.MAX_CONTEXT = 50 # Remember last 50 messages
         
         self.bot_start_time = time.time()
 
@@ -979,7 +981,6 @@ class HeroBot:
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
-        hero=HeroBot()
         if not update.message or not update.message.text:
             return
         
@@ -1210,6 +1211,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
