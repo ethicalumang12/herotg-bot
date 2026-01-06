@@ -241,78 +241,86 @@ class HeroBot:
             return "❌ Audio transcription failed."
             
     # -------- DOWNLOADER LOGIC --------
-async def auto_download(self, url: str, update: Update):
+    async def auto_download(self, url: str, update: Update):
         msg = await update.message.reply_text("⏳ **Initializing Download...**")
         
-        # Unique filename using timestamp to avoid conflicts
+        # Unique filename to avoid collisions
         random_name = f"video_{int(time.time())}"
         filepath = os.path.join(DOWNLOAD_DIR, random_name)
 
         ydl_opts = {
-            # Sabse stable format for Telegram (MP4)
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': filepath,  # Fixed path without special chars
+            'outtmpl': f"{filepath}.%(ext)s",  # Let yt-dlp handle extension
             'merge_output_format': 'mp4',
             'quiet': True,
             'no_warnings': True,
             'nocheckcertificate': True,
             'add_header': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.37 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.37'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
         }
 
+        final_path = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Meta-data extract karein pehle
-                info = await asyncio.to_thread(ydl.extract_info, url, download=True)
+                # 1. Extract info first without downloading
+                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
                 
-                # Check karein ki file kahan save hui (kabhi-kabhi .mp4 automatically add hota hai)
-                final_path = filepath + ".mp4"
-                if not os.path.exists(final_path):
-                    if os.path.exists(filepath):
-                        final_path = filepath
-                    else:
-                        # Dhoondhein agar koi aur extension hai
-                        possible_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(random_name)]
-                        if possible_files:
-                            final_path = os.path.join(DOWNLOAD_DIR, possible_files[0])
-                        else:
-                            raise Exception("File not found after download.")
-
-                # Telegram file size limit check (50MB for local bots)
-                file_size = os.path.getsize(final_path) / (1024 * 1024)
-                if file_size > 50:
-                    await msg.edit_text(f"⚠️ **File too large ({file_size:.1f}MB).**\nTelegram only allows 50MB for bots.")
-                    os.remove(final_path)
+                # Pre-check size if available (in bytes)
+                filesize = info.get('filesize') or info.get('filesize_approx')
+                if filesize and filesize > 50 * 1024 * 1024:
+                    await msg.edit_text("⚠️ **File too large.** Telegram limit is 50MB.")
                     return
+
+                # 2. Start Download
+                await msg.edit_text("📥 **Downloading...**")
+                await asyncio.to_thread(ydl.download, [url])
+                
+                # 3. Determine the actual filename
+                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
+                # Ensure it ends in .mp4 as per your merge_output_format
+                if not final_path.endswith(".mp4"):
+                    final_path = os.path.splitext(final_path)[0] + ".mp4"
+
+                if not os.path.exists(final_path):
+                    raise FileNotFoundError("Video file was not created.")
 
                 await msg.edit_text("📤 **Uploading to Telegram...**")
                 
-                # Send the video
                 with open(final_path, 'rb') as video_file:
                     await update.message.reply_video(
                         video=video_file, 
-                        caption=f"✅ **{info.get('title', 'Downloaded Video')}**",
+                        caption=f"✅ **{info.get('title', 'Video')}**",
                         supports_streaming=True
                     )
-                # Cleanup
-                os.remove(final_path)
-                await msg.delete()
+            
+            await msg.delete()
+
         except Exception as e:
-            logger.error(f"Download Error: {e}")
-            await msg.edit_text(f"❌ **Download Failed.**\nReason: {str(e)[:50]}...")
-            # Cleanup in case of failure
-            if os.path.exists(filepath): os.remove(filepath)
-            if os.path.exists(filepath + ".mp4"): os.remove(filepath + ".mp4")
-                
-    async def weather_info(self, city : str) -> str:
-        if not self.weather_key: 
+            await msg.edit_text(f"❌ **Error:** {str(e)[:50]}")
+        
+        finally:
+            # Universal Cleanup
+            if final_path and os.path.exists(final_path):
+                os.remove(final_path)
+
+    async def weather_info(self, city: str) -> str:
+        if not hasattr(self, 'weather_key') or not self.weather_key: 
             return "❌ Weather API key not set."
+        
         url = "http://api.openweathermap.org/data/2.5/weather"
         try:
-            res = await self.fetch_async(url, params={"q": city, "appid": self.weather_key, "units": "metric"})
-            return f"Weather in {res['name']}: {res['main']['temp']}°C, {res['weather'][0]['description']}."
-        except: return "❌ Weather fetch failed."
+            # Assuming fetch_async is a helper method you wrote
+            res = await self.fetch_async(url, params={
+                "q": city, 
+                "appid": self.weather_key, 
+                "units": "metric"
+            })
+            temp = res['main']['temp']
+            desc = res['weather'][0]['description']
+            return f"Weather in {res['name']}: {temp}°C, {desc}."
+        except Exception:
+            return "❌ Weather fetch failed. Check city name."
 
     async def news_summary(self) -> str:
         if not self.news_key: return "❌ News API key not set."
@@ -1189,6 +1197,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
