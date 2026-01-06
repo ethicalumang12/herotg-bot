@@ -295,10 +295,6 @@ class HeroBot:
 
         print("Quality-aware bot chal raha hai…")
         client.run_until_disconnected()
-            finally:
-                # Universal Cleanup
-                if final_path and os.path.exists(final_path):
-                    os.remove(final_path)
 
     async def weather_info(self, city: str) -> str:
         if not hasattr(self, 'weather_key') or not self.weather_key: 
@@ -1203,6 +1199,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
