@@ -979,9 +979,10 @@ class HeroBot:
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
+        hero=HeroBot()
         if not update.message or not update.message.text:
             return
-    
+        
         text = update.message.text
         if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
             await hero.auto_download(text, update)
@@ -1209,6 +1210,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
