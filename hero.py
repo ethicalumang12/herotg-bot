@@ -247,7 +247,7 @@ class HeroBot:
         
         api_id = 24365702
         api_hash = "d78348a81d41643f51095deaffc1dc90"
-        bot_token = 
+        bot_token = "8075078295:AAFkAvadpHnypIm_jnUbXuq9S2XE-PYvbu0"
 
         client = TelegramClient("downloader_bot", api_id, api_hash).start(bot_token=bot_token)
 
@@ -1203,6 +1203,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
