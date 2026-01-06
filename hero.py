@@ -30,15 +30,16 @@ from telegram.ext import (
 from groq import AsyncGroq
 from flask import Flask
 from threading import Thread
+import threading
 
-app = Flask('')
-@app.route('/')
+app_flask = Flask(__name__)
+@app_flask.route('/')
 def home():
     return "I am alive!"
 
-def run():
-    # Render default port 10000 use karta hai
-    app.run(host='0.0.0.0', port=10000)
+def run_flask():
+    port = int(os.environ.get("PORT".8080))
+    app_flask.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
@@ -472,7 +473,7 @@ async def auto_download(self, url: str, update: Update):
             return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
             uid = user.id if hasattr(user, 'id') else user
-            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True)
+            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True)
             await update.message.reply_text(f"✅ Promoted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
@@ -1182,10 +1183,12 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
