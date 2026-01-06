@@ -433,7 +433,7 @@ class HeroBot:
             return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
             uid = user.id if hasattr(user, 'id') else user
-            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_live_streams=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True, can_ban_users=True)
+            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True, can_ban_users=True)
             await update.message.reply_text(f"✅ Promoted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
@@ -1147,4 +1147,5 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
