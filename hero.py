@@ -979,7 +979,6 @@ class HeroBot:
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
-        hero = HeroBot()
         if not update.message or not update.message.text:
             return
     
@@ -1210,6 +1209,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
