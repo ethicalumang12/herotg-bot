@@ -30,6 +30,7 @@ from telegram.ext import (
 from groq import AsyncGroq
 from flask import Flask
 from threading import Thread
+import threading
 
 app_flask = Flask('')
 @app_flask.route('/')
@@ -1193,10 +1194,12 @@ def main():
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
+    keep_alive()
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
