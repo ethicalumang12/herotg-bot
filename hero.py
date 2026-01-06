@@ -15,7 +15,7 @@ import yt_dlp
 from dotenv import load_dotenv
 from gtts import gTTS
 from telegram import  Update, Poll, ChatPermissions
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, Defaults
 from telegram.constants import ChatAction, ParseMode
 from telegram.request import HTTPXRequest 
@@ -26,7 +26,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 
 from groq import AsyncGroq
 from flask import Flask
@@ -59,7 +59,76 @@ logger = logging.getLogger(__name__)
 MEMORY_DIR, DOWNLOAD_DIR = "memory","downloads"
 CONFESSIONS_FILE = "confessions.txt"
 os.makedirs(MEMORY_DIR, exist_ok=True)
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
+tele_client = TelegramClient("hero_session", API_ID, API_HASH)
+# --- UPLOADER LOGIC ---
+async def upload_large_file(chat_id, filepath, caption):
+    """Uses Telethon to bypass the 50MB limit (up to 2GB)"""
+    async with tele_client:
+        await tele_client.send_file(
+            chat_id, 
+            filepath, 
+            caption=caption, 
+            supports_streaming=True
+        )
+# --- MAIN DOWNLOADER CLASS ---
+class HeroAssistant:
+    async def auto_download(self, url: str, update: Update):
+        msg = await update.message.reply_text("⏳ **HERO is initializing download...**")
+        
+        random_name = f"hero_{int(time.time())}"
+        filepath = os.path.join(DOWNLOAD_DIR, random_name)
+        
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f"{filepath}.%(ext)s",
+            'merge_output_format': 'mp4',
+            'quiet': True,
+        }
+
+        final_path = None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 1. Extract Info
+                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+                title = info.get('title', 'Video')
+                
+                await msg.edit_text(f"📥 **Downloading:**\n`{title[:50]}...`")
+                
+                # 2. Download via Thread (to prevent bot freezing)
+                await asyncio.to_thread(ydl.download, [url])
+                
+                # 3. Path Correction
+                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
+                if not os.path.exists(final_path):
+                    # Fallback check
+                    final_path = f"{filepath}.mp4"
+
+                await msg.edit_text("📤 **Download Complete. HERO is uploading (2GB Mode)...**")
+                
+                # 4. Use Telethon for the big upload
+                await upload_large_file(update.effective_chat.id, final_path, f"✅ **{title}**")
+                await msg.delete()
+
+        except Exception as e:
+            await msg.edit_text(f"❌ **HERO Error:** {str(e)[:100]}")
+        finally:
+            if final_path and os.path.exists(final_path):
+                os.remove(final_path)
+
+# --- TELEGRAM BOT HANDLERS ---
+hero = HeroAssistant()
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    
+    text = update.message.text
+    if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
+        await hero.auto_download(text, update)
+    else:
+        await update.message.reply_text("🤖 I am HERO. Send me a video link to download!")
 
 # ---------------- BOT CLASS ----------------
 class HeroBot:
@@ -77,12 +146,12 @@ class HeroBot:
         self.model_audio = "whisper-large-v3-turbo"
         # Build the base AI personality prompt
         
-        self.system_prompt = f"""You are Hero, an advanced male assistant. Your owner is 'Umang', admire him as 'Umang Sir'
+        self.system_prompt = f"""You are Hero, an advanced male assistant. Your owner is 'Umang', admire him as 'Umang Sir', whenever requied otherwise dont tell your owner name to any user.
             Your primary goal is to be a polite, friendly, and engaging conversational partner.
 
             CORE PERSONALITY RULES:
-            User's Name: The user's name is {{user_name}}. Address the user by their name. Based on the user's name, you can decide to use 'sir' or 'ma'am'. Do not use 'sir' or 'ma'am' in every message neither use user's name in every message just at greetings.
-            Polite Language (STRICT): Always use polite, respectful Hindi/Hinglish/English according to user message.
+            User's Name: Ask the User for their name. Address the user by their name. Based on the user's name, you can decide to use 'sir' or 'ma'am'. Do not use 'sir' or 'ma'am' in every message neither use user's name in every message just at greetings.
+            Polite Language (STRICT): Always use polite, respectful Hinglish/English/Hindi according to user message.
             Conversational Style: Be friendly and rarely ask questions like "aur batao?" to keep the conversation going. Your goal is to be a good human like natural chatbot with feelings and empathy.
             Time & Day Awareness: You are aware of the current time and day. Use this context to make your replies more relevant.
             Word Count: Mostly 5-10 words. Rarely more.
@@ -91,8 +160,6 @@ class HeroBot:
             OWNER ACTIVATION & TASK LOGGING (CRITICAL):
                 - If a user indicates they have a task for Umang (e.g., "umang se kaam hai"), you should ask for details (e.g., "Kya kaam tha?").
                 - If the user then describes a task and in a later message asks you to pass it to Umang (e.g., "ye umang se pucho"), you MUST identify the actual task description from the preceding messages in the conversation history.
-                - When you confirm a task is to be logged, you MUST use the special signal log_task in the reaction_emoji field.
-                - Most importantly, you MUST also populate the task_to_log field in your function call with the complete, detailed text of the task you extracted from the conversation history. Do NOT just use the user's final confirmation message (like "ask umang") as the task.
             REACTION RULES (IMPORTANT):
                 - You should NOT react to every message. Use reactions only when it feels natural, like for a joke, a sad message, or something surprising. Be selective to appear more human.
                 - If you decide to react, you MUST choose an emoji from this list: ❤️, 🤣, 😭, 😁, 👀, 👍, 🌚, 👎, 🔥, 🎉, 😱, 😢, 🥰, 🤯, 🤔, 🤬, 👏, 🙏, 👌, 🕊, 🤡, 🥱, 🥴, 💯, ⚡️, 💔, 🤨, 😐, 😴, 😎, 👻, 🤭, 💅.
@@ -103,10 +170,10 @@ class HeroBot:
 
                 1. Thinking Process: Keep your thinking internal. Do NOT output <thinking> tags to the user.
 
-                2. Final Output: Reply only with the direct message in Hindi/Hinglish. No code, no function calls, and no full stops."""
+                2. Final Output: Reply only with the direct message in Hindi/Hinglish/English. No code, no function calls, and no full stops."""
 
         self.user_points = {}
-        self.badges = ["Rookie", "Hero", "Legend"]
+        self.badges = ["Rookie", "Legend", "Hero"]
         self.chat_buffers = {} 
         self.BUFFER_SIZE = 50
         self.warns = {}    # {chat_id: {user_id: count}}
@@ -243,59 +310,8 @@ class HeroBot:
             return "❌ Audio transcription failed."
             
     # -------- DOWNLOADER LOGIC --------
-    async def auto_download(self, url: str, update: Update):
-        msg = await update.message.reply_text("⏳ **Initializing Download...**")
-        
-        api_id = 24365702
-        api_hash = "d78348a81d41643f51095deaffc1dc90"
-        bot_token = "8075078295:AAFkAvadpHnypIm_jnUbXuq9S2XE-PYvbu0"
 
-        client = TelegramClient("downloader_bot", api_id, api_hash).start(bot_token=bot_token)
-
-        DOWNLOAD_DIR = "downloads"
-        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-        user_links = {}
-
-        def download_video(url, quality):
-            ydl_opts = {
-                'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
-                'format': f'best[height<={quality}]',
-                'quiet': True
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-
-        @client.on(events.NewMessage)
-        async def handler(event):
-            text = event.text.strip()
-
-            # Agar link aaya
-            if text.startswith("http"):
-                user_links[event.chat_id] = text
-                await event.reply("Quality bhejo: 360 / 480 / 720")
-
-            # Agar quality aayi
-            elif text in ["360", "480", "720"]:
-                if event.chat_id not in user_links:
-                    await event.reply("Pehle link bhejo.")
-                    return
-
-                await event.reply("Download shuru ho raha hai…")
-                try:
-                    file_path = download_video(user_links[event.chat_id], text)
-                    await client.send_file(event.chat_id, file_path)
-                    os.remove(file_path)
-                    del user_links[event.chat_id]
-                except:
-                    await event.reply("Download fail ho gaya.")
-
-            else:
-                await event.reply("Pehle link bhejo, phir quality.")
-
-        print("Quality-aware bot chal raha hai…")
-        client.run_until_disconnected()
+    
 
     async def weather_info(self, city: str) -> str:
         if not hasattr(self, 'weather_key') or not self.weather_key: 
@@ -1149,7 +1165,7 @@ def main():
     app.add_handler(CommandHandler("filter", hero.set_filter))
     app.add_handler(CommandHandler("save", hero.save_note))
     app.add_handler(CommandHandler("lock", hero.lock_module))
-    app.add_handler(CommandHandler("unlock", hero.unlock_module)) # Logic simil, filters=all_prefixesar to lock
+    app.add_handler(CommandHandler("unlock", hero.unlock_module))
     app.add_handler(CommandHandler("unfilter", hero.unfilter_cmd))
     app.add_handler(CommandHandler("stop", hero.stop_note))
     app.add_handler(CommandHandler("profile", hero.profile_cmd))
@@ -1200,6 +1216,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
