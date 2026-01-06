@@ -66,16 +66,7 @@ os.makedirs(MEMORY_DIR, exist_ok=True)
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 tele_client = TelegramClient("hero_session", api_id, api_hash)
-# --- UPLOADER LOGIC ---
-async def upload_large_file(chat_id, filepath, caption):
-    """Uses Telethon to bypass the 50MB limit (up to 2GB)"""
-    async with tele_client:
-        await tele_client.send_file(
-            chat_id, 
-            filepath, 
-            caption=caption, 
-            supports_streaming=True
-        )
+
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 # ---------------- BOT CLASS ----------------
@@ -258,6 +249,15 @@ class HeroBot:
             return "❌ Audio transcription failed."
             
     # -------- DOWNLOADER LOGIC --------
+    async def upload_large_file(chat_id, filepath, caption):
+        """Uses Telethon to bypass the 50MB limit (up to 2GB)"""
+        async with tele_client:
+            await tele_client.send_file(
+                chat_id, 
+                filepath, 
+                caption=caption, 
+                supports_streaming=True
+            )
     async def auto_download(self, url: str, update: Update):
         msg = await update.message.reply_text("⏳ **HERO is initializing download...**")
         
@@ -1210,6 +1210,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
