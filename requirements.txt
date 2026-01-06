@@ -1,3 +1,4 @@
+telethon
 python-telegram-bot
 groq
 python-dotenv
@@ -6,4 +7,5 @@ psutil
 yt-dlp
 gTTS
 flask
+
 
