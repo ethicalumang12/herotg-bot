@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Bot run karne ki command
-CMD ["python", "mmbot.py"]
+CMD ["python", "hero.py"]
