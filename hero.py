@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from gtts import gTTS
 from telegram import  Update, Poll, ChatPermissions
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler
+from telegram.ext import CallbackQueryHandler, Defaults
 from telegram.constants import ChatAction, ParseMode
 from telegram.request import HTTPXRequest 
 from telegram.ext import (
@@ -65,17 +65,17 @@ class HeroBot:
         self.weather_key = os.getenv("OPENWEATHER_API_KEY")
         self.news_key = os.getenv("NEWS_API_KEY")
         self.context = {}  # Dictionary to store {user_id: [messages]}
-        self.MAX_CONTEXT = 20 # Remember last 20 messages
+        self.MAX_CONTEXT = 50 # Remember last 20 messages
         
         self.bot_start_time = time.time()
 
         # --- MODELS ---
         self.model_txt = "llama-3.3-70b-versatile"
-        self.model_audio = "distil-whisper-large-v3-en"
+        self.model_audio = "whisper-large-v3-turbo"
         # Build the base AI personality prompt
         
         self.system_prompt = f"""You are Hero, an advanced male assistant. Your owner is 'Umang', admire him as 'Umang Sir'
-            Your primary goal is to be a polite, friendly, and engaging conversational partner while also serving as an efficient assistant for your owner, Umang. When Umang is away, you chat with users to keep them company.
+            Your primary goal is to be a polite, friendly, and engaging conversational partner.
 
             CORE PERSONALITY RULES:
             User's Name: The user's name is {{user_name}}. Address the user by their name. Based on the user's name, you can decide to use 'sir' or 'ma'am'. Do not use 'sir' or 'ma'am' in every message neither use user's name in every message just at greetings.
@@ -90,13 +90,6 @@ class HeroBot:
                 - If the user then describes a task and in a later message asks you to pass it to Umang (e.g., "ye umang se pucho"), you MUST identify the actual task description from the preceding messages in the conversation history.
                 - When you confirm a task is to be logged, you MUST use the special signal log_task in the reaction_emoji field.
                 - Most importantly, you MUST also populate the task_to_log field in your function call with the complete, detailed text of the task you extracted from the conversation history. Do NOT just use the user's final confirmation message (like "ask umang") as the task.
-                - Example Scenario:
-                    1. User: "umang se kaam hai"
-                    2. AI: "kya kaam tha?"
-                    3. User: "sanya ke bare me puchna tha"
-                    4. AI: "main nahi janta"
-                    5. User: "ye umang se pucho"
-                    - Correct Response for Step 5: Your tool call should be format_response(reaction_emoji="log_task", reply_text="Theek hai, noted. I'll inform umang.", task_to_log="sanya ke bare me puchna tha"). The task_to_log contains the real task from message #3.
             REACTION RULES (IMPORTANT):
                 - You should NOT react to every message. Use reactions only when it feels natural, like for a joke, a sad message, or something surprising. Be selective to appear more human.
                 - If you decide to react, you MUST choose an emoji from this list: ❤️, 🤣, 😭, 😁, 👀, 👍, 🌚, 👎, 🔥, 🎉, 😱, 😢, 🥰, 🤯, 🤔, 🤬, 👏, 🙏, 👌, 🕊, 🤡, 🥱, 🥴, 💯, ⚡️, 💔, 🤨, 😐, 😴, 😎, 👻, 🤭, 💅.
@@ -113,7 +106,12 @@ class HeroBot:
         self.badges = ["Rookie", "Hero", "Legend"]
         self.chat_buffers = {} 
         self.BUFFER_SIZE = 50
-
+        self.warns = {}    # {chat_id: {user_id: count}}
+        self.filters = {}  # {chat_id: {keyword: reply}}
+        self.notes = {}    # {chat_id: {notename: content}}
+        self.locks = {}    # {chat_id: [locked_types]}
+        raw_ids = os.getenv("OWNER_ID", "")
+        self.owner_id = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
         # --- TRUTH OR DARE DATA ---
         self.truths = [
             "What is your biggest fear?", "What is the last lie you told?",
@@ -136,6 +134,8 @@ class HeroBot:
             return "Good Afternoon ☀️"
         else:
             return "Good Evening 🌆"
+        
+    
 
     # -------- HELPER: ASYNC FETCH --------
     async def fetch_async(self, url: str, json_response: bool = True, params: dict = None):
@@ -312,9 +312,9 @@ class HeroBot:
             await update.message.reply_text("❌ No confessions found.")
 
     async def clear_confessions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        owner_id = 8439434171
+        #owner_id = 8439434171
         # Security Check
-        if update.effective_user.id != owner_id:
+        if update.effective_user.id != int(os.getenv("OWNER_ID", "")):
             await update.message.reply_text("❌ **Access Denied:** Only the owner can perform this action.")
             return
         try:
@@ -325,6 +325,57 @@ class HeroBot:
             await update.message.reply_text("🗑️ **Confessions file has been successfully cleared!**")
         except Exception as e:
             await update.message.reply_text(f"❌ **Error:** {e}")
+
+    async def broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        owner_id = int(os.getenv("OWNER_ID", "", 0))
+        
+        # 1. Security Check
+        if update.effective_user.id not in self.owner_id:
+            await update.message.reply_text("❌ **Access Denied.**")
+            return
+
+        # 2. Get the message to broadcast
+        if update.message.reply_to_message:
+            broadcast_msg = update.message.reply_to_message
+        elif context.args:
+            broadcast_msg = update.message
+        else:
+            await update.message.reply_text("❌ **Usage:** Reply to a message or type `/broadcast Hello everyone!`")
+            return
+
+        await update.message.reply_text("🚀 **Starting Broadcast...**")
+        
+        # 3. Get all User IDs from the memory folder
+        users = []
+        for filename in os.listdir(MEMORY_DIR):
+            if filename.startswith("user_") and filename.endswith(".txt"):
+                user_id = filename.replace("user_", "").replace(".txt", "")
+                users.append(int(user_id))
+
+        success = 0
+        failed = 0
+
+        # 4. Loop and Send
+        for uid in users:
+            try:
+                if update.message.reply_to_message:
+                    await context.bot.copy_message(chat_id=uid, from_chat_id=update.effective_chat.id, message_id=broadcast_msg.message_id)
+                else:
+                    await context.bot.send_message(chat_id=uid, text=" ".join(context.args))
+                
+                success += 1
+                # Small delay to prevent Telegram rate limits (FloodWait)
+                await asyncio.sleep(0.3) 
+            except Exception:
+                failed += 1
+
+        await update.message.reply_text(
+            f"✅ **Broadcast Finished!**\n\n"
+            f"👤 **Total Users:** {len(users)}\n"
+            f"📤 **Sent:** {success}\n"
+            f"🚫 **Failed/Blocked:** {failed}"
+        )
+
     # -------- SYSTEM MONITOR (PING) --------
     async def ping_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = time.time()
@@ -360,74 +411,81 @@ class HeroBot:
             return False
         except: return False
 
+    async def get_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message.reply_to_message:
+            return update.message.reply_to_message.from_user
+        if context.args:
+            target = context.args[0]
+            if target.startswith('@'): return target # Returns username string
+            if target.isdigit():
+                try:
+                    member = await context.bot.get_chat_member(update.effective_chat.id, int(target))
+                    return member.user
+                except: return None
+        return None
+
+    # --- MODERATION MODULE ---
     async def promote_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        if not await self.check_admin(update, context): 
+            return 
+        user = await self.get_user(update, context)
+        if not user: 
+            return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            await context.bot.promote_chat_member(
-                update.effective_chat.id, update.message.reply_to_message.from_user.id,
-                can_delete_messages=True, can_invite_users=True, can_pin_messages=True
-            )
-            await update.message.reply_text("✅ User Promoted.")
+            uid = user.id if hasattr(user, 'id') else user
+            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_live_streams=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True, can_ban_users=True)
+            await update.message.reply_text(f"✅ Promoted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def demote_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            await context.bot.promote_chat_member(
-                update.effective_chat.id, update.message.reply_to_message.from_user.id,
-                can_delete_messages=False, can_invite_users=False, can_pin_messages=False
-            )
-            await update.message.reply_text("✅ User Demoted.")
+            uid = user.id if hasattr(user, 'id') else user
+            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=False, can_invite_users=False, can_pin_messages=False)
+            await update.message.reply_text(f"✅ Demoted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def ban_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            await context.bot.ban_chat_member(update.effective_chat.id, update.message.reply_to_message.from_user.id)
-            await update.message.reply_text("🚫 Banned.")
+            uid = user.id if hasattr(user, 'id') else user
+            await context.bot.ban_chat_member(update.effective_chat.id, uid)
+            await update.message.reply_text(f"🚫 Banned {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def kick_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            uid = update.message.reply_to_message.from_user.id
+            uid = user.id if hasattr(user, 'id') else user
             await context.bot.ban_chat_member(update.effective_chat.id, uid)
             await context.bot.unban_chat_member(update.effective_chat.id, uid)
-            await update.message.reply_text("👋 Kicked.")
+            await update.message.reply_text(f"👋 Kicked {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def mute_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            uid = update.message.reply_to_message.from_user.id
+            uid = user.id if hasattr(user, 'id') else user
             await context.bot.restrict_chat_member(update.effective_chat.id, uid, ChatPermissions(can_send_messages=False))
-            await update.message.reply_text("😶 Muted.")
+            await update.message.reply_text(f"😶 Muted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def unmute_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Reply to a user.")
-            return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
-            uid = update.message.reply_to_message.from_user.id
-            await context.bot.restrict_chat_member(update.effective_chat.id, uid, ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True))
-            await update.message.reply_text("🗣️ Unmuted.")
+            uid = user.id if hasattr(user, 'id') else user
+            await context.bot.restrict_chat_member(update.effective_chat.id, uid, ChatPermissions(can_send_messages=True, can_send_other_messages=True))
+            await update.message.reply_text(f"🗣️ Unmuted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
     async def pin_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -469,105 +527,255 @@ class HeroBot:
             await context.bot.delete_message(chat_id, msg.message_id)
         except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
+    async def warn_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        user = await self.get_user(update, context)
+        if not user: return await update.message.reply_text("❌ Reply or mention a user to warn.")
+        
+        chat_id = update.effective_chat.id
+        user_id = user.id if hasattr(user, 'id') else user
+        if chat_id not in self.warns: self.warns[chat_id] = {}
+        
+        count = self.warns[chat_id].get(user_id, 0) + 1
+        self.warns[chat_id][user_id] = count
+        
+        if count >= 3:
+            await context.bot.ban_chat_member(chat_id, user_id)
+            await update.message.reply_text(f"🚫 {user.first_name if hasattr(user, 'first_name') else user} banned (3/3 warns).")
+            self.warns[chat_id][user_id] = 0
+        else:
+            await update.message.reply_text(f"⚠️ Warned! ({count}/3)")
+
+    async def set_filter(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        if len(context.args) < 2: return await update.message.reply_text("Usage: `/filter keyword reply`")
+        
+        keyword, reply = context.args[0].lower(), " ".join(context.args[1:])
+        chat_id = update.effective_chat.id
+        if chat_id not in self.filters: self.filters[chat_id] = {}
+        self.filters[chat_id][keyword] = reply
+        await update.message.reply_text(f"✅ Filter for '{keyword}' saved.")
+
+    async def save_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        if not update.message.reply_to_message or not context.args:
+            return await update.message.reply_text("Usage: Reply to a message with `/save notename`")
+        
+        name, chat_id = context.args[0].lower(), update.effective_chat.id
+        if chat_id not in self.notes: self.notes[chat_id] = {}
+        self.notes[chat_id][name] = update.message.reply_to_message.message_id
+        await update.message.reply_text(f"✅ Note '#{name}' saved.")
+    
+    async def lock_module(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        lock_type = context.args[0].lower() if context.args else None
+        if lock_type not in ['stickers', 'forward', 'links']:
+            return await update.message.reply_text("Usage: `/lock stickers/forward/links`")
+        
+        chat_id = update.effective_chat.id
+        if chat_id not in self.locks: self.locks[chat_id] = []
+        self.locks[chat_id].append(lock_type)
+        await update.message.reply_text(f"🔒 Locked: {lock_type}")
+
+    async def unlock_module(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        
+        chat_id = update.effective_chat.id
+        lock_type = context.args[0].lower() if context.args else None
+        
+        # Validation for allowed types
+        allowed_types = ['stickers', 'forward', 'links', 'night']
+        
+        if lock_type not in allowed_types:
+            return await update.message.reply_text(f"❓ **Usage:** `/unlock [type]`\nAvailable: `stickers`, `forward`, `links`, `night`")
+
+        if chat_id in self.locks and lock_type in self.locks[chat_id]:
+            self.locks[chat_id].remove(lock_type)
+            await update.message.reply_text(f"🔓 **Unlocked:** {lock_type.capitalize()} are now allowed.")
+        else:
+            await update.message.reply_text(f"ℹ️ {lock_type.capitalize()} was not locked.")
+
+    async def unfilter_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        if not context.args: return await update.message.reply_text("Usage: `/unfilter keyword`")
+        
+        keyword, chat_id = context.args[0].lower(), update.effective_chat.id
+        if chat_id in self.filters and keyword in self.filters[chat_id]:
+            del self.filters[chat_id][keyword]
+            await update.message.reply_text(f"🗑️ Filter for '{keyword}' has been deleted.")
+        else:
+            await update.message.reply_text("❌ Filter not found.")
+
+    async def stop_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        if not context.args: return await update.message.reply_text("Usage: `/stop notename`")
+        
+        name, chat_id = context.args[0].lower(), update.effective_chat.id
+        if chat_id in self.notes and name in self.notes[chat_id]:
+            del self.notes[chat_id][name]
+            await update.message.reply_text(f"🗑️ Note '#{name}' has been removed.")
+        else:
+            await update.message.reply_text("❌ Note not found.")
+    
+    async def profile_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = await self.get_user(update, context) or update.effective_user
+        uid = user.id if hasattr(user, 'id') else user
+        pts = self.user_points.get(uid, 0)
+        rank = "Rookie 🥉" if pts < 100 else ("Hero 🥈" if pts < 500 else "Legend 🥇")
+
+        text = (
+            f"👤 **PROFILE: {user.first_name if hasattr(user, 'first_name') else user}**\n"
+            f"──────────────\n"
+            f"🆔 **ID:** `{uid}`\n"
+            f"🏆 **Points:** {pts}\n"
+            f"🎖️ **Rank:** {rank}"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    async def translate_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # tr works on reply to translate specific text OR uses AI to translate prompt
+        if update.message.reply_to_message:
+            text = update.message.reply_to_message.text
+            lang = context.args[0] if context.args else "English"
+        else:
+            if not context.args: return await update.message.reply_text("❌ Usage: `/tr language text` or reply to a message.")
+            lang, text = context.args[0], " ".join(context.args[1:])
+
+        prompt = f"Translate to {lang}. Reply ONLY with translation:\n\n{text}"
+        reply = await self.ai_reply(update.effective_user.id, prompt, "Professional Translator Mode.")
+        await update.message.reply_text(f"🌍 **{lang}:**\n\n{reply}")
+    
+    async def tag_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        
+        # Warning: This works best in groups where the bot is admin and has access to member list
+        msg = "📢 **ATTENTION EVERYONE!**\n" + (" ".join(context.args) if context.args else "Please check this message.")
+        
+        # Sending as a single message to avoid flood limits
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    
+    async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        chat_id = update.effective_chat.id
+        
+        if chat_id not in self.locks: self.locks[chat_id] = []
+        
+        if 'night' in self.locks[chat_id]:
+            self.locks[chat_id].remove('night')
+            msg = "🌅 **Morning Mode:** Locks removed. Happy chatting!"
+        else:
+            self.locks[chat_id].append('night')
+            msg = "💤 **Night Mode ON:** Group is now under restricted watch."
+        
+        await update.message.reply_text(msg)
+    
+    
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = update.effective_user.first_name
         greet = self.get_greeting()
+        time_now = datetime.datetime.now().strftime('%I:%M %p')
+        #"""owner_mentions = []
+        #for oid in self.owner_id:
+        #    owner_mentions.append(f"[Owner](tg://user?id={oid})")
+        
+        # Agar 2 owners hain toh: "Owner, Owner" dikhayega
+        #owners_text = ", ".join(owner_mentions)
+        
         text = (
-            f"⚡ **{greet}, {name}! I am H.E.R.O.**\n"
-            f"I'm aware it's currently {datetime.datetime.now().strftime('%I:%M %p')}.\n"
-            f"──「**SYSTEM STATUS: ONLINE**」──\n\n"
-            "🛡️ **ADMIN COMMAND CENTER**\n"
-            "• `/promote` | `/demote` - Manage admin rights\n"
-            "• `/ban` | `/kick` - Remove members\n"
-            "• `/mute` | `/unmute` - Restrict chat\n"
-            "• `/pin` | `/del` - Message management\n"
-            "• `/purge` - Clean chat (Reply to start)\n\n"
-            "🧠 **AI NEURAL CORE**\n"
-            "• `/memory` - View what I know about you\n"
-            "• `/forget` - Wipe your local memory\n"
-            "• `/summary` - Recap recent group chat\n"
-            "• `/voice` [text] - Generate AI speech\n"
-            "• `/art` [prompt] - Generate AI images\n\n"
-            "🛠️ **UTILITY & TOOLS**\n"
-            "• `/calc` [math] - Advanced calculator\n"
-            "• `/remind` [in 5m text] - Set timers\n"
-            "• `/weather` [city] - Real-time weather\n"
-            "• `/news` - Get latest global headlines\n"
-            "• `/ping` - Check latency & system health\n\n"
-            "🎮 **ENTERTAINMENT HUB**\n"
-            "• `/tod` - Truth or Dare engine\n"
-            "• `/rps` [choice] - Rock Paper Scissors\n"
-            "• `/confess` [text] - Anonymous polls\n"
-            "• `/trivia` | `/roast` - AI humor\n\n"
-            "──────────────\n"
-            "💡 *Tip: Mention 'Hero' or reply to me to chat! Use /help for more info.\n\n ~ᴜᴍᴀɴɢ*"
+            f"⚡ **{greet}, {name}!!\n I am H.E.R.O.**\n"
+            f"──「 **SYSTEM STATUS: ONLINE** 」──\n\n"
+            f"📍 **Current Time:** {time_now}\n"
+            f"👤 **Developer:** [ᴜᴍᴀɴɢ](tg://user?id=5122043113)\n\n"    #({owners_text})
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "✨ **QUICK GUIDE**\n\n"
+            "🔹 **Send Msg to My OWNER:** Agar aapko Umang Sir se kaam hai, toh bas likhein: `'Umang se kaam h'` or `'Umang ko bulao'` or just say `'Umang'`. Main aapka message unhe direct forward kar dunga.\n\n"
+            "🔹 **Neural Memory:** Mujhe kuch yaad dilane ke liye likhein: \n`remember this: [aapki baat]`\nMain use hamesha ke liye save kar lunga.\n\n"
+            "🔹 **AI Chat:** Mujhse baat karne ke liye bss 'Hero' likhein ya mere message ka Reply karein.\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📖 **To see full features, click on button below or just type /help .**"
         )
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-    
-    # -------- HELP COMMAND --------
+        
+        keyboard = [[InlineKeyboardButton("📖 Open Help Menu", callback_data='help_main')]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+
+
     async def help_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [
-                InlineKeyboardButton("🛡️ Admin", callback_data='help_admin'),
-                InlineKeyboardButton("🧠 AI Core", callback_data='help_ai')
+                InlineKeyboardButton("🛡️ Management", callback_data='help_admin'),
+                InlineKeyboardButton("🧠 AI Neural", callback_data='help_ai')
             ],
             [
-                InlineKeyboardButton("🛠️ Tools", callback_data='help_tools'),
-                InlineKeyboardButton("🎮 Fun", callback_data='help_fun')
+                InlineKeyboardButton("🛠️ Utilities", callback_data='help_tools'),
+                InlineKeyboardButton("🎮 Fun & Stats", callback_data='help_fun')
             ],
-            [InlineKeyboardButton("📜 Full List", callback_data='help_all')]
+            [InlineKeyboardButton("❌ Close Menu", callback_data='close_help')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        help_text = (
-            "📖 **H.E.R.O Help Manual**\n\n"
-            "Select a category below to see detailed instructions on how to use my features."
-        )
-        
+        help_text = "📖 **H.E.R.O Help Manual**\n\nSelect a category below to see detailed instructions on how to use my features."
+
         if update.message:
             await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-        else: # For callback queries
+        else:
             await update.callback_query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
-    # -------- HELP CALLBACK HANDLER --------
     async def help_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
         data = query.data
 
-        # Define help text for each category
+        if data == 'close_help':
+            return await query.message.delete()
+        if data == 'help_main':
+            return await self.help_cmd(update, context)
+
         help_map = {
             'help_admin': (
-                "🛡️ **Admin Command Details**\n\n"
-                "• `/promote` - Give a user admin rights (Reply to user)\n"
-                "• `/ban` - Permanent ban from group\n"
-                "• `/kick` - Remove and allow back\n"
-                "• `/mute` - Stop user from sending messages\n"
-                "• `/purge` - Delete many messages (Reply to the start message)"
+                "🛡️ **Group Management**\n"
+                "──────────────\n"
+                "• `/promote` | `/demote` - Manage Admin rights for User\n"
+                "• `/ban` | `/kick` - Permanent ban | Remove & allow back\n"
+                "• `/mute` | `/unmute` - Restrict user to chat\n"
+                "• `/pin` - Pin a message\n"
+                "• `/del` | `/delete` - Delete a message\n"
+                "• `/warn` - Give Warnings to User (3/3 = Ban)\n"
+                "• `/filter` [word] [reply] - Auto-reply to setted word\n"
+                "• `/unfilter` - Remove Filter\n"
+                "• `/lock` [type] - Block Stickers/Links/text to group\n"
+                "• `/purge` - Delete bulk messages"
             ),
             'help_ai': (
-                "🧠 **AI & Memory Details**\n\n"
-                "• `/summary` - AI generates a recap of the last 50 messages\n"
-                "• `/art [prompt]` - Creates an image based on your text\n"
-                "• `/voice [text]` - Converts your text into an audio file\n"
-                "• `remember this: [info]` - Saves a fact to your personal memory"
+                "🧠 **AI Neural Core**\n"
+                "──────────────\n"
+                "• `/summary` - AI Summary of group chat\n"
+                "• `/art` [prompt] - Generate AI Image\n"
+                "• `/voice` [text] - Conver Text ko voice\n"
+                "• `/memory` - Check karein main aapke baare mein kya janta hoon\n"
+                "• `/forget` - Wipeout all your memory from bot\n"
+                "• `remember this: [info]` - Save Permanent memory"
             ),
             'help_tools': (
-                "🛠️ **Utilities & Tools**\n\n"
-                "• `/calc [expression]` - Solve complex math\n"
-                "• `/remind in [time][m/h] [task]` - e.g., `/remind in 10m check coffee`\n"
-                "• `/weather [city]` - Get current weather reports\n"
-                "• `/news` - Headlines from around the world"
+                "🛠️ **Utilities & Tools**\n"
+                "──────────────\n"
+                "• `/tr` [lang] - AI Translation (Reply to text)\n"
+                "• `/weather` [city] - Mausam ki jankari\n"
+                "• `/remind` [in 5m text] - Set timers\n"
+                "• `/calc` - Advanced mathematical calculations\n"
+                "• `/all` - Tag everyone in group (Admins only)\n"
+                "• `/ping` - Latency aur Speed check karein\n"
+                "• `/night` - Toggle Night mode"
             ),
             'help_fun': (
-                "🎮 **Games & Fun**\n\n"
-                "• `/tod` - Interactive Truth or Dare game\n"
-                "• `/rps [rock/paper/scissors]` - Play against the AI\n"
-                "• `/confess [secret]` - Start an anonymous voting poll\n"
-                "• `/roast` - AI will roast you (based on your memory!)"
-            ),
-            'help_all': "Check the /start command for the complete quick-reference list!"
+                "🎮 **Fun & Statistics**\n"
+                "──────────────\n"
+                "• `/profile` - Aapka user card aur rank dikhayega\n"
+                "• `/tod` - Truth or Dare game\n"
+                "• `/rps` - Rock Paper Scissors\n"
+                "• '/confess' - Secretly UMANG se kuch bhi bol sakte ho.. He'll not know your identity\n"
+                "• `/roast` - Roast through AI\n"
+                "• `/trivia` - Dimag tez karne wale sawal"
+            )
         }
 
         # Back button to return to main help
@@ -675,18 +883,42 @@ class HeroBot:
     # -------- MESSAGE HANDLERS --------
 
     async def handle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-        file = await update.message.voice.get_file()
-        buf = io.BytesIO()
-        await file.download_to_memory(buf)
-        text = await self.transcribe_audio(buf.getvalue(), "voice.oga")
-        await update.message.reply_text(f"🗣️ **Heard:** {text}", parse_mode=ParseMode.MARKDOWN)
-        reply = await self.ai_reply(update.effective_user.id, text, self.load_memory(update.effective_user.id))
-        await update.message.reply_text(reply)
+        user = update.effective_user
+        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.RECORD_VOICE)
+        
+        try:
+            # 1. Download the voice file
+            file = await context.bot.get_file(update.message.voice.file_id)
+            voice_data = io.BytesIO()
+            await file.download_to_memory(voice_data)
+            voice_data.seek(0)
+            
+            # 2. Transcribe using the new model_audio
+            transcription = await self.client.audio.transcriptions.create(
+                file=("voice.ogg", voice_data),
+                model=self.model_audio, # whisper-large-v3-turbo
+                response_format="text",
+            )
+            
+            if not transcription:
+                return await update.message.reply_text("❌ Could not hear anything.")
+
+            # 3. Get AI Reply using the transcribed text
+            # Fixed: Passing 3 arguments to ai_reply
+            reply = await self.ai_reply(user.id, transcription, self.load_memory(user.id))
+            
+            await update.message.reply_text(
+                f"🎤 **You said:** _{transcription}_\n\n🤖 **H.E.R.O:** {reply}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        except Exception as e:
+            logger.error(f"Voice Error: {e}")
+            await update.message.reply_text("❌ Mic error or transcription failed.")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        text = update.message.text
+        text = update.message.text.lower()
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
@@ -696,7 +928,7 @@ class HeroBot:
             if any(x in url for x in ["instagram.com", "youtube.com", "youtu.be", "shorts"]):
                 return await self.auto_download(url, update)
         
-        # 1. AUTO CALCULATOR CHECK
+        # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
             try:
                 clean_expr = text.replace('x', '*').replace('X', '*')
@@ -706,20 +938,20 @@ class HeroBot:
                     return 
             except: pass
 
-        # 2. Chat Buffer
+        # 3. Chat Buffer
         if update.effective_chat.type in ['group', 'supergroup']:
             if chat_id not in self.chat_buffers: self.chat_buffers[chat_id] = []
             self.chat_buffers[chat_id].append(f"{user.first_name}: {text}")
             if len(self.chat_buffers[chat_id]) > self.BUFFER_SIZE: self.chat_buffers[chat_id].pop(0)
 
-        # 3. Memory Save
+        # 4. Memory Save
         match = re.search(r'remember\s+this\s*:\s*(.+)', text, re.IGNORECASE)
         if match:
             self.save_memory(user.id, match.group(1).strip())
             await update.message.reply_text("🧠 Saved.")
             return
 
-        # 4. TRIGGER LOGIC: 'hero', Reply to Bot, Private Chat, or Mention
+        # 5. TRIGGER LOGIC: 'hero', Reply to Bot, Private Chat, or Mention
         is_private = update.effective_chat.type == 'private'
         is_hero_mentioned = "hero" in text.lower()
         is_bot_mention = f"@{context.bot.username}" in text
@@ -734,6 +966,78 @@ class HeroBot:
             reply = await self.ai_reply(user.id, clean_text, self.load_memory(user.id))
             await update.message.reply_text(reply)
 
+        #6. Send messege to owner
+        text = update.message.text.lower()
+        user = update.effective_user
+        chat = update.effective_chat
+        
+        # OWNER_ID loading with debug
+        owner_id_raw = os.getenv("OWNER_ID", "")
+        if not owner_id_raw:
+            logger.error("❌ OWNER_ID is missing in .env file!")
+            return
+
+        owner_id = [int(i.strip()) for i in owner_id_raw.split(",") if i.strip().isdigit()]
+
+        # Trigger keywords (Hinglish variations)
+        triggers = ["umang se kaam h", "umang ko bulao", "umang ko bolna", "umang se kaam hai", "owner se bolo", "umang suno","umang",]
+        
+        if any(word in text for word in triggers):
+            logger.info(f"🎯 Trigger detected from {user.first_name}")
+
+            # Group Link access
+            link = "Private Chat"
+            if chat.type != 'private':
+                try:
+                    link = await chat.export_invite_link()
+                except:
+                    link = "No link (Make me Admin with invite rights)"
+            
+            report = (
+                f"🚨 **NEW MESSAGE FOR YOU SIR**\n\n"
+                f"👤 **From:** {user.first_name} (@{user.username})\n"
+                f"🆔 **User ID:** `{user.id}`\n"
+                f"📍 **Context:** {chat.title if chat.title else 'Private'}\n"
+                f"🔗 **Link:** {link}\n"
+                f"💬 **Message:** {update.message.text}"
+            )
+            for oid in owner_id:
+                try:
+                # Direct message to me
+                    await context.bot.send_message(chat_id=oid, text=report, parse_mode=ParseMode.MARKDOWN)
+                    await update.message.reply_text("✅ Message sent")
+                    logger.info(f"✅ Report sent to Owner ID: {owner_id}")
+                except Exception as e:
+                    logger.error(f"❌ Could not send message to Owner: {e}")
+                    await update.message.reply_text("⚠️ Sir tak message nahi pahunch paya. (Did you /start the bot?)")
+                return
+        
+        # 7. Check Filters
+        if chat_id in self.filters:
+            for keyword, reply in self.filters[chat_id].items():
+                if keyword in text:
+                    return await update.message.reply_text(reply)
+
+        # 8. Check Notes (Triggered by #)
+        if text.startswith("#") and chat_id in self.notes:
+            note_name = text[1:]
+            if note_name in self.notes[chat_id]:
+                return await context.bot.copy_message(chat_id, chat_id, self.notes[chat_id][note_name])
+
+        # 9. Check Locks (Links)
+        if chat_id in self.locks and 'links' in self.locks[chat_id]:
+            if "http" in text or "t.me" in text:
+                if not await self.check_admin(update, context):
+                    await update.message.delete()
+                    return
+                
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            # If Night Mode is ON, non-admins cannot send links or media
+            if "http" in text or update.message.sticker:
+                if not await self.check_admin(update, context):
+                    await update.message.delete()
+                    return
+        
     async def error(self, update, context):
         logger.error("Error:", exc_info=context.error)
 
@@ -754,7 +1058,7 @@ def main():
         connect_timeout=60.0, 
         pool_timeout=60.0
     )
-    
+
     app = ApplicationBuilder().token(tg_token).request(request_params).build()
 
     async def art_wrapper(u,c): 
@@ -777,6 +1081,7 @@ def main():
         await u.message.reply_text("Forgot everything.")
 
     # Handlers
+    app.add_handler(CommandHandler("broadcast", hero.broadcast))
     app.add_handler(CommandHandler("clearconfess", hero.clear_confessions))
     app.add_handler(CommandHandler("msg", hero.get_confessions))
     app.add_handler(CommandHandler("promote", hero.promote_cmd))
@@ -789,6 +1094,18 @@ def main():
     app.add_handler(CommandHandler(["del", "delete"], hero.delete_cmd))
     app.add_handler(CommandHandler("purge", hero.purge_cmd))
     app.add_handler(CommandHandler("help", hero.help_cmd))
+    app.add_handler(CommandHandler("warn", hero.warn_user))
+    app.add_handler(CommandHandler("filter", hero.set_filter))
+    app.add_handler(CommandHandler("save", hero.save_note))
+    app.add_handler(CommandHandler("lock", hero.lock_module))
+    app.add_handler(CommandHandler("unlock", hero.unlock_module)) # Logic simil, filters=all_prefixesar to lock
+    app.add_handler(CommandHandler("unfilter", hero.unfilter_cmd))
+    app.add_handler(CommandHandler("stop", hero.stop_note))
+    app.add_handler(CommandHandler("profile", hero.profile_cmd))
+    app.add_handler(CommandHandler("tr", hero.translate_cmd))
+    app.add_handler(CommandHandler("all", hero.tag_all))
+    app.add_handler(CommandHandler("night", hero.night_mode))
+
 
     app.add_handler(CommandHandler("start", hero.start))
     app.add_handler(CommandHandler("ping", hero.ping_cmd))
@@ -830,3 +1147,4 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
