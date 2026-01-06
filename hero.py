@@ -245,65 +245,60 @@ class HeroBot:
     async def auto_download(self, url: str, update: Update):
         msg = await update.message.reply_text("⏳ **Initializing Download...**")
         
-        # Unique filename to avoid collisions
-        random_name = f"video_{int(time.time())}"
-        filepath = os.path.join(DOWNLOAD_DIR, random_name)
+        api_id = 24365702
+        api_hash = "d78348a81d41643f51095deaffc1dc90"
+        bot_token = 
 
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f"{filepath}.%(ext)s",  # Let yt-dlp handle extension
-            'merge_output_format': 'mp4',
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'add_header': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        client = TelegramClient("downloader_bot", api_id, api_hash).start(bot_token=bot_token)
+
+        DOWNLOAD_DIR = "downloads"
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+        user_links = {}
+
+        def download_video(url, quality):
+            ydl_opts = {
+                'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+                'format': f'best[height<={quality}]',
+                'quiet': True
             }
-        }
-
-        final_path = None
-        try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 1. Extract info first without downloading
-                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
-                
-                # Pre-check size if available (in bytes)
-                filesize = info.get('filesize') or info.get('filesize_approx')
-                if filesize and filesize > 50 * 1024 * 1024:
-                    await msg.edit_text("⚠️ **File too large.** Telegram limit is 50MB.")
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info)
+
+        @client.on(events.NewMessage)
+        async def handler(event):
+            text = event.text.strip()
+
+            # Agar link aaya
+            if text.startswith("http"):
+                user_links[event.chat_id] = text
+                await event.reply("Quality bhejo: 360 / 480 / 720")
+
+            # Agar quality aayi
+            elif text in ["360", "480", "720"]:
+                if event.chat_id not in user_links:
+                    await event.reply("Pehle link bhejo.")
                     return
 
-                # 2. Start Download
-                await msg.edit_text("📥 **Downloading...**")
-                await asyncio.to_thread(ydl.download, [url])
-                
-                # 3. Determine the actual filename
-                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
-                # Ensure it ends in .mp4 as per your merge_output_format
-                if not final_path.endswith(".mp4"):
-                    final_path = os.path.splitext(final_path)[0] + ".mp4"
+                await event.reply("Download shuru ho raha hai…")
+                try:
+                    file_path = download_video(user_links[event.chat_id], text)
+                    await client.send_file(event.chat_id, file_path)
+                    os.remove(file_path)
+                    del user_links[event.chat_id]
+                except:
+                    await event.reply("Download fail ho gaya.")
 
-                if not os.path.exists(final_path):
-                    raise FileNotFoundError("Video file was not created.")
+            else:
+                await event.reply("Pehle link bhejo, phir quality.")
 
-                await msg.edit_text("📤 **Uploading to Telegram...**")
-                
-                with open(final_path, 'rb') as video_file:
-                    await update.message.reply_video(
-                        video=video_file, 
-                        caption=f"✅ **{info.get('title', 'Video')}**",
-                        supports_streaming=True
-                    )
-            
-            await msg.delete()
-
-        except Exception as e:
-            await msg.edit_text(f"❌ **Error:** {str(e)[:50]}")
-        
-        finally:
-            # Universal Cleanup
-            if final_path and os.path.exists(final_path):
-                os.remove(final_path)
+        print("Quality-aware bot chal raha hai…")
+        client.run_until_disconnected()
+            finally:
+                # Universal Cleanup
+                if final_path and os.path.exists(final_path):
+                    os.remove(final_path)
 
     async def weather_info(self, city: str) -> str:
         if not hasattr(self, 'weather_key') or not self.weather_key: 
@@ -1208,6 +1203,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
