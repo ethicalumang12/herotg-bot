@@ -77,52 +77,9 @@ async def upload_large_file(chat_id, filepath, caption):
             supports_streaming=True
         )
 # --- MAIN DOWNLOADER CLASS ---
-class HeroAssistant:
-    async def auto_download(self, url: str, update: Update):
-        msg = await update.message.reply_text("⏳ **HERO is initializing download...**")
-        
-        random_name = f"hero_{int(time.time())}"
-        filepath = os.path.join(DOWNLOAD_DIR, random_name)
-        
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f"{filepath}.%(ext)s",
-            'merge_output_format': 'mp4',
-            'quiet': True,
-        }
-
-        final_path = None
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 1. Extract Info
-                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
-                title = info.get('title', 'Video')
-                
-                await msg.edit_text(f"📥 **Downloading:**\n`{title[:50]}...`")
-                
-                # 2. Download via Thread (to prevent bot freezing)
-                await asyncio.to_thread(ydl.download, [url])
-                
-                # 3. Path Correction
-                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
-                if not os.path.exists(final_path):
-                    # Fallback check
-                    final_path = f"{filepath}.mp4"
-
-                await msg.edit_text("📤 **Download Complete. HERO is uploading (2GB Mode)...**")
-                
-                # 4. Use Telethon for the big upload
-                await upload_large_file(update.effective_chat.id, final_path, f"✅ **{title}**")
-                await msg.delete()
-
-        except Exception as e:
-            await msg.edit_text(f"❌ **HERO Error:** {str(e)[:100]}")
-        finally:
-            if final_path and os.path.exists(final_path):
-                os.remove(final_path)
 
 # --- TELEGRAM BOT HANDLERS ---
-hero = HeroAssistant()
+hero = HeroBot()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -314,7 +271,50 @@ class HeroBot:
             return "❌ Audio transcription failed."
             
     # -------- DOWNLOADER LOGIC --------
+    async def auto_download(self, url: str, update: Update):
+        msg = await update.message.reply_text("⏳ **HERO is initializing download...**")
+        
+        random_name = f"hero_{int(time.time())}"
+        filepath = os.path.join(DOWNLOAD_DIR, random_name)
+        
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f"{filepath}.%(ext)s",
+            'merge_output_format': 'mp4',
+            'quiet': True,
+        }
 
+        final_path = None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 1. Extract Info
+                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+                title = info.get('title', 'Video')
+                
+                await msg.edit_text(f"📥 **Downloading:**\n`{title[:50]}...`")
+                
+                # 2. Download via Thread (to prevent bot freezing)
+                await asyncio.to_thread(ydl.download, [url])
+                
+                # 3. Path Correction
+                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
+                if not os.path.exists(final_path):
+                    # Fallback check
+                    final_path = f"{filepath}.mp4"
+
+                await msg.edit_text("📤 **Download Complete. HERO is uploading (2GB Mode)...**")
+                
+                # 4. Use Telethon for the big upload
+                await upload_large_file(update.effective_chat.id, final_path, f"✅ **{title}**")
+                await msg.delete()
+
+        except Exception as e:
+            await msg.edit_text(f"❌ **HERO Error:** {str(e)[:100]}")
+        finally:
+            if final_path and os.path.exists(final_path):
+                os.remove(final_path)
+
+    
     
 
     async def weather_info(self, city: str) -> str:
@@ -993,11 +993,15 @@ class HeroBot:
         chat_id = update.effective_chat.id
 
         # 1. AUTO-DOWNLOADER
-        url_match = re.search(r'(https?://[^\s]+)', text)
-        if url_match:
-            url = url_match.group(1)
-            if any(x in url for x in ["instagram.com", "youtube.com", "youtu.be", "shorts"]):
-                return await self.auto_download(url, update)
+        hero = HeroBot()
+        if not update.message or not update.message.text:
+            return
+    
+        text = update.message.text
+        if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
+            await hero.auto_download(text, update)
+        else:
+            await update.message.reply_text("🤖 I am HERO. Send me a video link to download!")
         
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
@@ -1220,6 +1224,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
