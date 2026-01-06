@@ -986,8 +986,6 @@ class HeroBot:
         text = update.message.text
         if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
             await self.auto_download(text, update)
-        else:
-            await update.message.reply_text("🤖 I am HERO. Send me a video link to download!")
         
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
@@ -1210,6 +1208,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
