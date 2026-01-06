@@ -238,33 +238,72 @@ class HeroBot:
         except Exception as e:
             logger.error(f"Whisper Error: {e}")
             return "❌ Audio transcription failed."
+            
     # -------- DOWNLOADER LOGIC --------
-    async def auto_download(self, url: str, update: Update):
-        msg = await update.message.reply_text("⏳ **Processing Link...**")
+async def auto_download(self, url: str, update: Update):
+        msg = await update.message.reply_text("⏳ **Initializing Download...**")
         
-        # YT Shorts aur Reels dono ke liye best format settings
+        # Unique filename using timestamp to avoid conflicts
+        random_name = f"video_{int(time.time())}"
+        filepath = os.path.join(DOWNLOAD_DIR, random_name)
+
         ydl_opts = {
+            # Sabse stable format for Telegram (MP4)
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+            'outtmpl': filepath,  # Fixed path without special chars
             'merge_output_format': 'mp4',
             'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'add_header': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.37 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.37'
+            }
         }
-        
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Meta-data extract karein pehle
                 info = await asyncio.to_thread(ydl.extract_info, url, download=True)
-                filename = ydl.prepare_filename(info)
                 
-                # Extension fix (agar merge ke baad badal jaye)
-                if not os.path.exists(filename):
-                    filename = os.path.splitext(filename)[0] + ".mp4"
+                # Check karein ki file kahan save hui (kabhi-kabhi .mp4 automatically add hota hai)
+                final_path = filepath + ".mp4"
+                if not os.path.exists(final_path):
+                    if os.path.exists(filepath):
+                        final_path = filepath
+                    else:
+                        # Dhoondhein agar koi aur extension hai
+                        possible_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(random_name)]
+                        if possible_files:
+                            final_path = os.path.join(DOWNLOAD_DIR, possible_files[0])
+                        else:
+                            raise Exception("File not found after download.")
 
-                await update.message.reply_video(video=open(filename, 'rb'), caption=f"✅ {info.get('title')}")
-                os.remove(filename)
+                # Telegram file size limit check (50MB for local bots)
+                file_size = os.path.getsize(final_path) / (1024 * 1024)
+                if file_size > 50:
+                    await msg.edit_text(f"⚠️ **File too large ({file_size:.1f}MB).**\nTelegram only allows 50MB for bots.")
+                    os.remove(final_path)
+                    return
+
+                await msg.edit_text("📤 **Uploading to Telegram...**")
+                
+                # Send the video
+                with open(final_path, 'rb') as video_file:
+                    await update.message.reply_video(
+                        video=video_file, 
+                        caption=f"✅ **{info.get('title', 'Downloaded Video')}**",
+                        supports_streaming=True
+                    )
+                # Cleanup
+                os.remove(final_path)
                 await msg.delete()
-        except Exception:
-            await msg.edit_text("❌ Download Failed. Link private ho sakta hai ya file badi hai.")
-    # -------- UTILITIES --------
+        except Exception as e:
+            logger.error(f"Download Error: {e}")
+            await msg.edit_text(f"❌ **Download Failed.**\nReason: {str(e)[:50]}...")
+            # Cleanup in case of failure
+            if os.path.exists(filepath): os.remove(filepath)
+            if os.path.exists(filepath + ".mp4"): os.remove(filepath + ".mp4")
+                
     async def weather_info(self, city: str) -> str:
         if not self.weather_key: return "❌ Weather API key not set."
         url = "http://api.openweathermap.org/data/2.5/weather"
@@ -327,7 +366,7 @@ class HeroBot:
             await update.message.reply_text(f"❌ **Error:** {e}")
 
     async def broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        owner_id = int(os.getenv("OWNER_ID", "", 0))
+        owner_id = os.getenv("OWNER_ID", "")
         
         # 1. Security Check
         if update.effective_user.id not in self.owner_id:
@@ -433,7 +472,7 @@ class HeroBot:
             return await update.message.reply_text("❌ Reply to a user or mention them.")
         try:
             uid = user.id if hasattr(user, 'id') else user
-            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True, can_ban_users=True)
+            await context.bot.promote_chat_member(update.effective_chat.id, uid, can_delete_messages=True, can_invite_users=True, can_pin_messages=True, can_manage_video_chats=True, can_manage_chat=True, can_restrict_members=True)
             await update.message.reply_text(f"✅ Promoted {user.first_name if hasattr(user, 'first_name') else user}")
         except Exception as e: await update.message.reply_text(f"❌ Failed: {e}")
 
@@ -1147,5 +1186,6 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
