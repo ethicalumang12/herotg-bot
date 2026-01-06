@@ -78,7 +78,6 @@ async def upload_large_file(chat_id, filepath, caption):
         )
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
-hero = HeroBot(groq_key=GROQ_KEY)
 # ---------------- BOT CLASS ----------------
 class HeroBot:
     def __init__(self, groq_key: str):
@@ -986,7 +985,7 @@ class HeroBot:
         
         text = update.message.text
         if "youtube.com" in text or "youtu.be" in text or "instagram.com" in text:
-            await hero.auto_download(text, update)
+            await self.auto_download(text, update)
         else:
             await update.message.reply_text("🤖 I am HERO. Send me a video link to download!")
         
@@ -1211,6 +1210,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
