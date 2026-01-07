@@ -239,7 +239,7 @@ class YouTubeAPI:
 
 yt_api = YouTubeAPI()
 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
 async def handle_message(client, message):
     url = await yt_api.url(message)
     if not url:
@@ -1376,6 +1376,7 @@ def main():
     # Message Handlers
     app.add_handler(MessageHandler(filters.VOICE, hero.handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, hero.handle_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     app.add_error_handler(hero.error)
     logger.info("HERO is ONLINE")
@@ -1388,6 +1389,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
