@@ -251,7 +251,7 @@ class HeroBot:
         self.bot_start_time = time.time()
 
         # --- MODELS ---
-        self.model_txt = "llama-3.1-70b-versatile" #"llama-3.1-8b-instant"
+        self.model_txt = "llama-3.1-8b-instant"  #"llama-3.1-70b-versatile"
         self.model_audio = "whisper-large-v3-turbo"
         # Build the base AI personality prompt
         
@@ -1363,6 +1363,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
