@@ -108,29 +108,12 @@ class YouTubeAPI:
                 print(f"[DEBUG] Response: {e.response.text}")
             raise Exception(f"Could not fetch data from API: {e}")
 
-    async def url(self, message_1: Message) -> Union[str, None]:
-        messages = [message_1]
-        if message_1.reply_to_message:
-            messages.append(message_1.reply_to_message)
-        text = ""
-        offset = None
-        length = None
-        for message in messages:
-            if offset:
-                break
-            if message.entities:
-                for entity in message.entities:
-                    if entity.type == MessageEntityType.URL:
-                        text = message.text or message.caption
-                        offset, length = entity.offset, entity.length
-                        break
-            elif message.caption_entities:
-                for entity in message.caption_entities:
-                    if entity.type == MessageEntityType.TEXT_LINK:
-                        return entity.url
-        if offset in (None,):
-            return None
-        return text[offset : offset + length]
+    async def url(self, message_text: str) -> Union[str, None]:
+        # Simple regex to find a URL in text
+        url_match = re.search(r'(https?://[^\s]+)', message_text)
+        if url_match:
+            return url_match.group(0)
+        return None
 
     async def download(self, link: str, unique_id: str) -> str:
         print("[LOG] Starting download process...")
@@ -241,39 +224,6 @@ class YouTubeAPI:
 
 yt_api = YouTubeAPI()
 
-
-async def handle_message(client, message):
-    url = await yt_api.url(message)
-    if not url:
-        return
-
-    print(f"[LOG] Received URL: {url}")
-    msg = await message.reply_text("Downloading...")
-    try:
-        file_path, title = await yt_api.download(url, f"{message.chat.id}_{message.id}")
-        await msg.edit_text("Sending...")
-        print("[LOG] Uploading to Telegram...")
-        
-        async def progress(current, total):
-            if total > 0:
-                pass
-
-        await client.send_video(
-            message.chat.id, 
-            file_path, 
-            caption=f"{title}", 
-            supports_streaming=True,
-            progress=progress
-        )
-        await msg.delete()
-        print("[LOG] Upload success.")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            print("[LOG] Cleaned up file.")
-    except Exception as e:
-        print(f"[ERROR] {e}")
-        await msg.edit_text(f"Error")
-        
 # ---------------- BOT CLASS ----------------
 class HeroBot:
     def __init__(self, groq_key: str):
@@ -286,7 +236,7 @@ class HeroBot:
         self.bot_start_time = time.time()
 
         # --- MODELS ---
-        self.model_txt = "llama-3.3-70b-versatile"
+        self.model_txt = "llama-3.3-8b-instant"
         self.model_audio = "whisper-large-v3-turbo"
         # Build the base AI personality prompt
         
@@ -452,12 +402,6 @@ class HeroBot:
         except Exception as e:
             logger.error(f"Whisper Error: {e}")
             return "❌ Audio transcription failed."
-            
-    # -------- DOWNLOADER LOGIC --------
-    
-
-    
-    
 
     async def weather_info(self, city: str) -> str:
         if not hasattr(self, 'weather_key') or not self.weather_key: 
@@ -894,24 +838,17 @@ class HeroBot:
         name = update.effective_user.first_name
         greet = self.get_greeting()
         time_now = datetime.datetime.now().strftime('%I:%M %p')
-        #"""owner_mentions = []
-        #for oid in self.owner_id:
-        #    owner_mentions.append(f"[Owner](tg://user?id={oid})")
-        
-        # Agar 2 owners hain toh: "Owner, Owner" dikhayega
-        #owners_text = ", ".join(owner_mentions)
         
         text = (
             f"⚡ **{greet}, {name}!!\n I am H.E.R.O.**\n"
             f"──「 **SYSTEM STATUS: ONLINE** 」──\n\n"
             f"📍 **Current Time:** {time_now}\n"
-            f"👤 **Developer:** [ᴜᴍᴀɴɢ](tg://user?id=5122043113)\n\n"    #({owners_text})
+            f"👤 **Developer:** [ᴜᴍᴀɴɢ](tg://user?id=5122043113)\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "✨ **QUICK GUIDE**\n\n"
             "🔹 **Send Msg to My OWNER:** Agar aapko Umang Sir se kaam hai, toh bas likhein: `'Umang se kaam h'` or `'Umang ko bulao'` or just say `'Umang'`. Main aapka message unhe direct forward kar dunga.\n\n"
             "🔹 **Neural Memory:** Mujhe kuch yaad dilane ke liye likhein: \n`remember this: [aapki baat]`\nMain use hamesha ke liye save kar lunga.\n\n"
             "🔹 **AI Chat:** Mujhse baat karne ke liye bss 'Hero' likhein ya mere message ka Reply karein.\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "📖 **To see full features, click on button below or just type /help .**"
         )
@@ -1124,7 +1061,6 @@ class HeroBot:
                 return await update.message.reply_text("❌ Could not hear anything.")
 
             # 3. Get AI Reply using the transcribed text
-            # Fixed: Passing 3 arguments to ai_reply
             reply = await self.ai_reply(user.id, transcription, self.load_memory(user.id))
             
             await update.message.reply_text(
@@ -1141,10 +1077,11 @@ class HeroBot:
             return
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
+        text = update.message.text.lower() if update.message.text else ""
+        user = update.effective_user
 
         # NIGHT MODE CHECK
         if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            # Only allow owners to chat
             if user_id not in self.owner_id:
                 try:
                     await update.message.delete()
@@ -1152,20 +1089,31 @@ class HeroBot:
                     pass
                 return
 
-        if update.message.photo:
-        # Handle photo here
-            await update.message.reply_text("I see you sent a photo!")
-            return
+        # --- AUTO DOWNLOADER LOGIC INTEGRATED ---
+        video_url = await yt_api.url(text)
+        if video_url:
+            print(f"[LOG] Auto-downloader triggered for URL: {video_url}")
+            progress_msg = await update.message.reply_text("⚡ Link detected! Downloading content...")
+            try:
+                unique_id = f"{chat_id}_{update.message.message_id}"
+                file_path, title = await yt_api.download(video_url, unique_id)
+                await progress_msg.edit_text("📤 Uploading to Telegram...")
+                
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=open(file_path, 'rb'),
+                    caption=f"🎥 **{title}**",
+                    supports_streaming=True,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await progress_msg.delete()
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return # Stop further processing once downloaded
+            except Exception as e:
+                print(f"[ERROR] Downloader failed: {e}")
+                await progress_msg.edit_text("❌ Failed to download content from the link.")
 
-        if update.message.text:
-            text = update.message.text.lower()
-        user = update.effective_user
-        chat_id = update.effective_chat.id
-
-        # 1. AUTO-DOWNLOADER
-
-        
-        
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
             try:
@@ -1200,55 +1148,32 @@ class HeroBot:
         if is_private or is_hero_mentioned or is_bot_mention or is_reply_to_bot:
             await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
             clean_text = text.replace(f"@{context.bot.username}", "").strip()
-            # If the user only said 'hero', we treat the text as is.
             reply = await self.ai_reply(user.id, clean_text, self.load_memory(user.id))
             await update.message.reply_text(reply)
 
-        #6. Send messege to owner
-        text = update.message.text.lower()
-        user = update.effective_user
-        chat = update.effective_chat
-        
-        # OWNER_ID loading with debug
-        owner_id_raw = os.getenv("OWNER_ID", "")
-        if not owner_id_raw:
-            logger.error("❌ OWNER_ID is missing in .env file!")
-            return
-
-        owner_id = [int(i.strip()) for i in owner_id_raw.split(",") if i.strip().isdigit()]
-
-        # Trigger keywords (Hinglish variations)
+        # 6. Send message to owner
         triggers = ["umang se kaam h", "umang ko bulao", "umang ko bolna", "umang se kaam hai", "owner se bolo", "umang suno","umang",]
-        
         if any(word in text for word in triggers):
-            logger.info(f"🎯 Trigger detected from {user.first_name}")
-
-            # Group Link access
+            owner_id_raw = os.getenv("OWNER_ID", "")
+            owner_ids = [int(i.strip()) for i in owner_id_raw.split(",") if i.strip().isdigit()]
             link = "Private Chat"
-            if chat.type != 'private':
-                try:
-                    link = await chat.export_invite_link()
-                except:
-                    link = "No link (Make me Admin with invite rights)"
-            
+            if update.effective_chat.type != 'private':
+                try: link = await update.effective_chat.export_invite_link()
+                except: link = "No link (Invite rights missing)"
             report = (
                 f"🚨 **NEW MESSAGE FOR YOU SIR**\n\n"
                 f"👤 **From:** {user.first_name} (@{user.username})\n"
                 f"🆔 **User ID:** `{user.id}`\n"
-                f"📍 **Context:** {chat.title if chat.title else 'Private'}\n"
+                f"📍 **Context:** {update.effective_chat.title if update.effective_chat.title else 'Private'}\n"
                 f"🔗 **Link:** {link}\n"
                 f"💬 **Message:** {update.message.text}"
             )
-            for oid in owner_id:
+            for oid in owner_ids:
                 try:
-                # Direct message to me
                     await context.bot.send_message(chat_id=oid, text=report, parse_mode=ParseMode.MARKDOWN)
                     await update.message.reply_text("✅ Message sent")
-                    logger.info(f"✅ Report sent to Owner ID: {owner_id}")
                 except Exception as e:
-                    logger.error(f"❌ Could not send message to Owner: {e}")
-                    await update.message.reply_text("⚠️ Sir tak message nahi pahunch paya. (Did you /start the bot?)")
-                return
+                    logger.error(f"❌ Failed to report to owner: {e}")
         
         # 7. Check Filters
         if chat_id in self.filters:
@@ -1272,7 +1197,7 @@ def main():
     if not tg_token or not groq_key:
         print("❌ Keys missing in .env")
         sys.exit(1)
-    keep_alive() # Isse server start ho jayega
+    keep_alive() 
     hero = HeroBot(groq_key)
     
     request_params = HTTPXRequest(
@@ -1330,8 +1255,6 @@ def main():
     app.add_handler(CommandHandler("all", hero.tag_all))
     app.add_handler(CommandHandler("night", hero.night_mode))
     app.add_handler(CommandHandler("day", hero.day_mode))
-
-
     app.add_handler(CommandHandler("start", hero.start))
     app.add_handler(CommandHandler("ping", hero.ping_cmd))
     app.add_handler(CommandHandler("remind", hero.remind))
@@ -1339,30 +1262,23 @@ def main():
     app.add_handler(CommandHandler("rps", hero.rps))
     app.add_handler(CommandHandler("confess", hero.confess))
     app.add_handler(CommandHandler("calc", hero.calc_cmd))
-    
     app.add_handler(CommandHandler("meme", lambda u,c: hero.generic_ai_cmd(u,c, "Create a funny meme text about '{input}'")))
     app.add_handler(CommandHandler("roast", lambda u,c: hero.generic_ai_cmd(u,c, "Roast the user. Memory: {memory}")))
     app.add_handler(CommandHandler("trivia", lambda u,c: hero.generic_ai_cmd(u,c, "Ask a hard trivia question based on: {memory}")))
     app.add_handler(CommandHandler("story", lambda u,c: hero.generic_ai_cmd(u,c, "Continue a story with word '{input}'. Memory: {memory}")))
     app.add_handler(CommandHandler("challenge", lambda u,c: hero.generic_ai_cmd(u,c, "Give a daily challenge based on: {memory}")))
     app.add_handler(CommandHandler("time_travel", lambda u,c: hero.generic_ai_cmd(u,c, "Simulate time travel to {input}.")))
-    
     app.add_handler(CommandHandler("tod", hero.tod_cmd))
-
-    
     app.add_handler(CommandHandler("art", art_wrapper))
     app.add_handler(CommandHandler("voice", voice_wrapper))
     app.add_handler(CommandHandler("news", news_wrapper))
     app.add_handler(CommandHandler(["weather", "w"], weather_wrapper))
     app.add_handler(CommandHandler("memory", mem_wrapper))
     app.add_handler(CommandHandler("forget", forget_wrapper))
-    # Callback Handlers (WITH PATTERNS TO PREVENT CONFLICT)
     app.add_handler(CallbackQueryHandler(hero.tod_button, pattern='^tod_'))
     app.add_handler(CallbackQueryHandler(hero.help_button, pattern='^help_'))
-    # Message Handlers
     app.add_handler(MessageHandler(filters.VOICE, hero.handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, hero.handle_text))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     app.add_error_handler(hero.error)
     logger.info("HERO is ONLINE")
@@ -1373,5 +1289,4 @@ if __name__ == "__main__":
     keep_alive()
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
     main()
