@@ -32,7 +32,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     ContextTypes,
-    filters,
+    filters as tg_filters,
 )
 from telethon import TelegramClient, events
 
@@ -81,13 +81,12 @@ app = Client("yt_link_bot", api_id=TG_API_ID, api_hash=TG_API_HASH, bot_token=TG
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 
+# ---------------- NEW AUTO DOWNLOADER CLASS ----------------
 class YouTubeAPI:
     def __init__(self):
         self.base = "https://www.youtube.com/watch?v="
         self.regex = r"(?:youtube\.com|youtu\.be)"
         self.http_client = httpx.AsyncClient(timeout=30.0) 
-        self.locks = {} # {chat_id: ['night']}
-        
 
     async def _fetch_api_data(self, link: str) -> dict:
         """Central function to call the NubCoder API and return JSON data."""
@@ -108,11 +107,20 @@ class YouTubeAPI:
                 print(f"[DEBUG] Response: {e.response.text}")
             raise Exception(f"Could not fetch data from API: {e}")
 
-    async def url(self, message_text: str) -> Union[str, None]:
-        # Simple regex to find a URL in text
-        url_match = re.search(r'(https?://[^\s]+)', message_text)
-        if url_match:
-            return url_match.group(0)
+    async def url(self, message_1: Update) -> Union[str, None]:
+        # Adjusted to work with python-telegram-bot Message objects
+        msg = message_1.message
+        messages = [msg]
+        if msg.reply_to_message:
+            messages.append(msg.reply_to_message)
+        
+        for m in messages:
+            if m.entities:
+                for entity in m.entities:
+                    if entity.type == "url":
+                        return m.text[entity.offset : entity.offset + entity.length]
+                    if entity.type == "text_link":
+                        return entity.url
         return None
 
     async def download(self, link: str, unique_id: str) -> str:
@@ -220,7 +228,6 @@ class YouTubeAPI:
             
         print(f"[LOG] Download completed: {file_path}")
         return file_path, title
-
 
 yt_api = YouTubeAPI()
 
@@ -1089,30 +1096,32 @@ class HeroBot:
                     pass
                 return
 
-        # --- AUTO DOWNLOADER LOGIC INTEGRATED ---
-        video_url = await yt_api.url(text)
+        # ---------------- INTEGRATED NEW AUTO DOWNLOADER LOGIC ----------------
+        video_url = await yt_api.url(update)
         if video_url:
-            print(f"[LOG] Auto-downloader triggered for URL: {video_url}")
-            progress_msg = await update.message.reply_text("⚡ Link detected! Downloading content...")
+            print(f"[LOG] Received URL: {video_url}")
+            msg = await update.message.reply_text("Downloading...")
             try:
-                unique_id = f"{chat_id}_{update.message.message_id}"
-                file_path, title = await yt_api.download(video_url, unique_id)
-                await progress_msg.edit_text("📤 Uploading to Telegram...")
+                file_path, title = await yt_api.download(video_url, f"{chat_id}_{update.message.message_id}")
+                await msg.edit_text("Sending...")
+                print("[LOG] Uploading to Telegram...")
                 
                 await context.bot.send_video(
-                    chat_id=chat_id,
-                    video=open(file_path, 'rb'),
-                    caption=f"🎥 **{title}**",
+                    chat_id=chat_id, 
+                    video=open(file_path, 'rb'), 
+                    caption=f"🎥 **{title}**", 
                     supports_streaming=True,
                     parse_mode=ParseMode.MARKDOWN
                 )
-                await progress_msg.delete()
+                await msg.delete()
+                print("[LOG] Upload success.")
                 if os.path.exists(file_path):
                     os.remove(file_path)
+                    print("[LOG] Cleaned up file.")
                 return # Stop further processing once downloaded
             except Exception as e:
-                print(f"[ERROR] Downloader failed: {e}")
-                await progress_msg.edit_text("❌ Failed to download content from the link.")
+                print(f"[ERROR] {e}")
+                await msg.edit_text(f"❌ Error: {e}")
 
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
@@ -1208,7 +1217,7 @@ def main():
         pool_timeout=60.0
     )
 
-    app = ApplicationBuilder().token(tg_token).request(request_params).build()
+    app_ptb = ApplicationBuilder().token(tg_token).request(request_params).build()
 
     async def art_wrapper(u,c): 
         d = " ".join(c.args) or "art"
@@ -1230,59 +1239,59 @@ def main():
         await u.message.reply_text("Forgot everything.")
 
     # Handlers
-    app.add_handler(CommandHandler("broadcast", hero.broadcast))
-    app.add_handler(CommandHandler("clearconfess", hero.clear_confessions))
-    app.add_handler(CommandHandler("msg", hero.get_confessions))
-    app.add_handler(CommandHandler("promote", hero.promote_cmd))
-    app.add_handler(CommandHandler("demote", hero.demote_cmd))
-    app.add_handler(CommandHandler("ban", hero.ban_cmd))
-    app.add_handler(CommandHandler("kick", hero.kick_cmd))
-    app.add_handler(CommandHandler("mute", hero.mute_cmd))
-    app.add_handler(CommandHandler("unmute", hero.unmute_cmd))
-    app.add_handler(CommandHandler("pin", hero.pin_cmd))
-    app.add_handler(CommandHandler(["del", "delete"], hero.delete_cmd))
-    app.add_handler(CommandHandler("purge", hero.purge_cmd))
-    app.add_handler(CommandHandler("help", hero.help_cmd))
-    app.add_handler(CommandHandler("warn", hero.warn_user))
-    app.add_handler(CommandHandler("filter", hero.set_filter))
-    app.add_handler(CommandHandler("save", hero.save_note))
-    app.add_handler(CommandHandler("lock", hero.lock_module))
-    app.add_handler(CommandHandler("unlock", hero.unlock_module))
-    app.add_handler(CommandHandler("unfilter", hero.unfilter_cmd))
-    app.add_handler(CommandHandler("stop", hero.stop_note))
-    app.add_handler(CommandHandler("profile", hero.profile_cmd))
-    app.add_handler(CommandHandler("tr", hero.translate_cmd))
-    app.add_handler(CommandHandler("all", hero.tag_all))
-    app.add_handler(CommandHandler("night", hero.night_mode))
-    app.add_handler(CommandHandler("day", hero.day_mode))
-    app.add_handler(CommandHandler("start", hero.start))
-    app.add_handler(CommandHandler("ping", hero.ping_cmd))
-    app.add_handler(CommandHandler("remind", hero.remind))
-    app.add_handler(CommandHandler("summary", hero.summary_cmd))
-    app.add_handler(CommandHandler("rps", hero.rps))
-    app.add_handler(CommandHandler("confess", hero.confess))
-    app.add_handler(CommandHandler("calc", hero.calc_cmd))
-    app.add_handler(CommandHandler("meme", lambda u,c: hero.generic_ai_cmd(u,c, "Create a funny meme text about '{input}'")))
-    app.add_handler(CommandHandler("roast", lambda u,c: hero.generic_ai_cmd(u,c, "Roast the user. Memory: {memory}")))
-    app.add_handler(CommandHandler("trivia", lambda u,c: hero.generic_ai_cmd(u,c, "Ask a hard trivia question based on: {memory}")))
-    app.add_handler(CommandHandler("story", lambda u,c: hero.generic_ai_cmd(u,c, "Continue a story with word '{input}'. Memory: {memory}")))
-    app.add_handler(CommandHandler("challenge", lambda u,c: hero.generic_ai_cmd(u,c, "Give a daily challenge based on: {memory}")))
-    app.add_handler(CommandHandler("time_travel", lambda u,c: hero.generic_ai_cmd(u,c, "Simulate time travel to {input}.")))
-    app.add_handler(CommandHandler("tod", hero.tod_cmd))
-    app.add_handler(CommandHandler("art", art_wrapper))
-    app.add_handler(CommandHandler("voice", voice_wrapper))
-    app.add_handler(CommandHandler("news", news_wrapper))
-    app.add_handler(CommandHandler(["weather", "w"], weather_wrapper))
-    app.add_handler(CommandHandler("memory", mem_wrapper))
-    app.add_handler(CommandHandler("forget", forget_wrapper))
-    app.add_handler(CallbackQueryHandler(hero.tod_button, pattern='^tod_'))
-    app.add_handler(CallbackQueryHandler(hero.help_button, pattern='^help_'))
-    app.add_handler(MessageHandler(filters.VOICE, hero.handle_voice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, hero.handle_text))
+    app_ptb.add_handler(CommandHandler("broadcast", hero.broadcast))
+    app_ptb.add_handler(CommandHandler("clearconfess", hero.clear_confessions))
+    app_ptb.add_handler(CommandHandler("msg", hero.get_confessions))
+    app_ptb.add_handler(CommandHandler("promote", hero.promote_cmd))
+    app_ptb.add_handler(CommandHandler("demote", hero.demote_cmd))
+    app_ptb.add_handler(CommandHandler("ban", hero.ban_cmd))
+    app_ptb.add_handler(CommandHandler("kick", hero.kick_cmd))
+    app_ptb.add_handler(CommandHandler("mute", hero.mute_cmd))
+    app_ptb.add_handler(CommandHandler("unmute", hero.unmute_cmd))
+    app_ptb.add_handler(CommandHandler("pin", hero.pin_cmd))
+    app_ptb.add_handler(CommandHandler(["del", "delete"], hero.delete_cmd))
+    app_ptb.add_handler(CommandHandler("purge", hero.purge_cmd))
+    app_ptb.add_handler(CommandHandler("help", hero.help_cmd))
+    app_ptb.add_handler(CommandHandler("warn", hero.warn_user))
+    app_ptb.add_handler(CommandHandler("filter", hero.set_filter))
+    app_ptb.add_handler(CommandHandler("save", hero.save_note))
+    app_ptb.add_handler(CommandHandler("lock", hero.lock_module))
+    app_ptb.add_handler(CommandHandler("unlock", hero.unlock_module))
+    app_ptb.add_handler(CommandHandler("unfilter", hero.unfilter_cmd))
+    app_ptb.add_handler(CommandHandler("stop", hero.stop_note))
+    app_ptb.add_handler(CommandHandler("profile", hero.profile_cmd))
+    app_ptb.add_handler(CommandHandler("tr", hero.translate_cmd))
+    app_ptb.add_handler(CommandHandler("all", hero.tag_all))
+    app_ptb.add_handler(CommandHandler("night", hero.night_mode))
+    app_ptb.add_handler(CommandHandler("day", hero.day_mode))
+    app_ptb.add_handler(CommandHandler("start", hero.start))
+    app_ptb.add_handler(CommandHandler("ping", hero.ping_cmd))
+    app_ptb.add_handler(CommandHandler("remind", hero.remind))
+    app_ptb.add_handler(CommandHandler("summary", hero.summary_cmd))
+    app_ptb.add_handler(CommandHandler("rps", hero.rps))
+    app_ptb.add_handler(CommandHandler("confess", hero.confess))
+    app_ptb.add_handler(CommandHandler("calc", hero.calc_cmd))
+    app_ptb.add_handler(CommandHandler("meme", lambda u,c: hero.generic_ai_cmd(u,c, "Create a funny meme text about '{input}'")))
+    app_ptb.add_handler(CommandHandler("roast", lambda u,c: hero.generic_ai_cmd(u,c, "Roast the user. Memory: {memory}")))
+    app_ptb.add_handler(CommandHandler("trivia", lambda u,c: hero.generic_ai_cmd(u,c, "Ask a hard trivia question based on: {memory}")))
+    app_ptb.add_handler(CommandHandler("story", lambda u,c: hero.generic_ai_cmd(u,c, "Continue a story with word '{input}'. Memory: {memory}")))
+    app_ptb.add_handler(CommandHandler("challenge", lambda u,c: hero.generic_ai_cmd(u,c, "Give a daily challenge based on: {memory}")))
+    app_ptb.add_handler(CommandHandler("time_travel", lambda u,c: hero.generic_ai_cmd(u,c, "Simulate time travel to {input}.")))
+    app_ptb.add_handler(CommandHandler("tod", hero.tod_cmd))
+    app_ptb.add_handler(CommandHandler("art", art_wrapper))
+    app_ptb.add_handler(CommandHandler("voice", voice_wrapper))
+    app_ptb.add_handler(CommandHandler("news", news_wrapper))
+    app_ptb.add_handler(CommandHandler(["weather", "w"], weather_wrapper))
+    app_ptb.add_handler(CommandHandler("memory", mem_wrapper))
+    app_ptb.add_handler(CommandHandler("forget", forget_wrapper))
+    app_ptb.add_handler(CallbackQueryHandler(hero.tod_button, pattern='^tod_'))
+    app_ptb.add_handler(CallbackQueryHandler(hero.help_button, pattern='^help_'))
+    app_ptb.add_handler(MessageHandler(tg_filters.VOICE, hero.handle_voice))
+    app_ptb.add_handler(MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, hero.handle_text))
     
-    app.add_error_handler(hero.error)
+    app_ptb.add_error_handler(hero.error)
     logger.info("HERO is ONLINE")
-    app.run_polling()
+    app_ptb.run_polling()
 
 if __name__ == "__main__":
     threading.Thread(target=run).start()
@@ -1290,4 +1299,3 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
-
