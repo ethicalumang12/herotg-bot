@@ -374,7 +374,7 @@ class HeroBot:
         self.user_points[user_id] = self.user_points.get(user_id, 0) + pts
 
     # -------- CORE AI (INTEGRATED SEARCH) --------
-    async def ai_reply(self, user_id: int, user_text: str, memory: str) -> str:
+    async def ai_reply(self, user_id: int, user_text: str, memory: str) -> dict:
         # 1. Get current time for Real-time knowledge
         now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
         
@@ -421,8 +421,14 @@ class HeroBot:
             # Parsing logic to separate reaction and text
             reaction, reply_text = "no_reaction", ""
             for line in ai_response.split('\n'):
-                if line.startswith("REACTION:"): reaction = line.replace("REACTION:", "").strip()
-                elif line.startswith("REPLY:"): reply_text = line.replace("REPLY:", "").strip()
+                if line.upper().startswith("REACTION:"):
+                    reaction = line.split(":":1)[1].strip()
+                elif line.upper().startswith("REPLY:"):
+                    reply_text = line.split(":", 1)[1].strip()
+
+            # Fallback if AI forgets format
+            if not reply_text and "REPLY:" not in ai_response:
+                reply_text = ai_response
 
             # 5. Update Short-term memory
             self.context[user_id].append({"role": "user", "content": user_text})
@@ -1199,17 +1205,23 @@ class HeroBot:
         if is_private or is_hero_mentioned or is_bot_mention or is_reply_to_bot:
             await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
             clean_text = text.replace(f"@{context.bot.username}", "").strip()
-            reply = await self.ai_reply(user.id, clean_text, self.load_memory(user.id))
             
-            # Situational Reaction trigger
-            if reply['reaction'] != "no_reaction":
+            # AI data fetch karein
+            ai_data = await self.ai_reply(user_id, clean_text, self.load_memory(user_id))
+            
+            # A. SITUATIONAL REACTION (User ke msg par)
+            if ai_data.get('reaction') and ai_data['reaction'] != "no_reaction":
                 try:
+                    # Emoji list verify karke react karein
                     await update.message.set_reaction(reaction=ai_data['reaction'])
-                except: pass # Permissions or old API ignore
+                except: pass
 
-            # Final human reply
-            if reply['reply'] != "no_output":
-                await update.message.reply_text(reply['reply'])
+            # B. REPLY TEXT (Sirf tab bhejega jab khali NA ho)
+            final_reply = ai_data.get('reply', "").strip()
+            
+            # --- CRITICAL FIX FOR EMPTY MESSAGE ERROR ---
+            if final_reply and final_reply.lower() != "no_output":
+                await update.message.reply_text(final_reply)
             return
 
         # 6. Send message to owner
@@ -1351,6 +1363,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
