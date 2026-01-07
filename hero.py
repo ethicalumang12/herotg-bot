@@ -22,7 +22,7 @@ from pyrogram.types import Message
 from typing import Union
 from dotenv import load_dotenv
 from gtts import gTTS
-from telegram import  Update, Poll, ChatPermissions
+from telegram import Update, Poll, ChatPermissions
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, Defaults
 from telegram.constants import ChatAction, ParseMode
@@ -859,30 +859,20 @@ class HeroBot:
         # Sending as a single message to avoid flood limits
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
-    async def night_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # This physically LOCKS the group for everyone except admins
-        lock_permissions = ChatPermissions(can_send_messages=False)
-    
-        await context.bot.set_chat_permissions(
-            chat_id=update.effective_chat.id, 
-            permissions=lock_permissions
-        )
-        await update.message.reply_text("🌙 *Night Mode ON:* Group has been locked!")
+    async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        chat_id = update.effective_chat.id
+        if chat_id not in self.locks: self.locks[chat_id] = []
+        if 'night' not in self.locks[chat_id]:
+            self.locks[chat_id].append('night')
+        await update.message.reply_text("🌙 *Night Mode ON:* Group chat is restricted to admins and owner!")
 
-    async def day_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # This UNLOCKS the group
-        unlock_permissions = ChatPermissions(
-            can_send_messages=True, 
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True
-        )
-    
-        await context.bot.set_chat_permissions(
-            chat_id=update.effective_chat.id, 
-            permissions=unlock_permissions
-        )
-        await update.message.reply_text("☀️ *Day Mode ON:* Group is now open!")
+    async def day_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        chat_id = update.effective_chat.id
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            self.locks[chat_id].remove('night')
+        await update.message.reply_text("☀️ *Day Mode ON:* Group is now open for everyone!")
     
     
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
@@ -1137,11 +1127,15 @@ class HeroBot:
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
 
+        # NIGHT MODE CHECK
         if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            # Kya ye Owner nahi hai?
-            if user_id != 8420282133:
-                await update.message.delete() # Message delete karein
-                return # Aage ka AI code mat chalne dein
+            # Only allow owners to chat
+            if user_id not in self.owner_id:
+                try:
+                    await update.message.delete()
+                except:
+                    pass
+                return
 
         if update.message.photo:
         # Handle photo here
@@ -1253,24 +1247,6 @@ class HeroBot:
             if note_name in self.notes[chat_id]:
                 return await context.bot.copy_message(chat_id, chat_id, self.notes[chat_id][note_name])
 
-        # 9. Check Locks (Links)
-
-        async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-            chat_id = update.effective_chat.id
-            user_id = update.effective_user.id
-            owner_id = 8232732731  # <--- Yahan apni (Owner) Numeric ID daalein
-
-            # Check karein agar night mode ON hai
-            if chat_id in self.locks and 'night' in self.locks[chat_id]:
-                # Agar message bhejnewala Owner nahi hai
-                if user_id != owner_id:
-                    try:
-                        await update.message.delete()
-                        # Optional: User ko warn karein (Warning: ye bot ko spammy bana sakta hai)
-                    except Exception as e:
-                        print(f"Delete Error: {e}")
-                    return # Aage ka code (AI response etc.) mat chalne dein
-        
     async def error(self, update, context):
         logger.error("Error:", exc_info=context.error)
 
@@ -1384,43 +1360,3 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
