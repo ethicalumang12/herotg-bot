@@ -857,7 +857,7 @@ class HeroBot:
         # Sending as a single message to avoid flood limits
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
-    async def night_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # This physically LOCKS the group for everyone except admins
         lock_permissions = ChatPermissions(can_send_messages=False)
     
@@ -1373,6 +1373,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
