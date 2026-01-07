@@ -86,6 +86,8 @@ class YouTubeAPI:
         self.base = "https://www.youtube.com/watch?v="
         self.regex = r"(?:youtube\.com|youtu\.be)"
         self.http_client = httpx.AsyncClient(timeout=30.0) 
+        self.locks = {} # {chat_id: ['night']}
+        
 
     async def _fetch_api_data(self, link: str) -> dict:
         """Central function to call the NubCoder API and return JSON data."""
@@ -858,29 +860,28 @@ class HeroBot:
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
     async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # This physically LOCKS the group for everyone except admins
-        lock_permissions = ChatPermissions(can_send_messages=False)
-    
-        await context.bot.set_chat_permissions(
-            chat_id=update.effective_chat.id, 
-            permissions=lock_permissions
-        )
-        await update.message.reply_text("🌙 *Night Mode ON:* Group has been locked!")
+        chat_id = update.effective_chat.id
+        
+        # Lock remove karein
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            self.locks[chat_id].remove('night')
+        
+        # Permissions ON karein
+        await context.bot.set_chat_permissions(chat_id, ChatPermissions.all_permissions())
+        await update.message.reply_text("🌅 **Morning Mode:** Chat unlocked!")
 
-    async def day_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # This UNLOCKS the group
-        unlock_permissions = ChatPermissions(
-            can_send_messages=True, 
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True
-        )
-    
-        await context.bot.set_chat_permissions(
-            chat_id=update.effective_chat.id, 
-            permissions=unlock_permissions
-        )
-        await update.message.reply_text("☀️ *Day Mode ON:* Group is now open!")
+    # 2. NIGHT MODE OFF KARNE KE LIYE
+    async def morning_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
+        chat_id = update.effective_chat.id
+        
+        # Lock remove karein
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            self.locks[chat_id].remove('night')
+        
+        # Permissions ON karein
+        await context.bot.set_chat_permissions(chat_id, ChatPermissions.all_permissions())
+        await update.message.reply_text("🌅 **Morning Mode:** Chat unlocked!")
     
     
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
@@ -1132,6 +1133,14 @@ class HeroBot:
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.message:
             return
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            # Kya ye Owner nahi hai?
+            if user_id != 8420282133:
+                await update.message.delete() # Message delete karein
+                return # Aage ka AI code mat chalne dein
 
         if update.message.photo:
         # Handle photo here
@@ -1328,7 +1337,7 @@ def main():
     app.add_handler(CommandHandler("tr", hero.translate_cmd))
     app.add_handler(CommandHandler("all", hero.tag_all))
     app.add_handler(CommandHandler("night", hero.night_mode))
-    app.add_handler(CommandHandler("day", hero.day_mode))
+    app.add_handler(CommandHandler("day", hero.morning_mode))
 
 
     app.add_handler(CommandHandler("start", hero.start))
@@ -1374,6 +1383,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
