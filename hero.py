@@ -862,17 +862,31 @@ class HeroBot:
     async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
+        
+        # DELETE THE COMMAND MESSAGE
+        try:
+            await update.message.delete()
+        except:
+            pass
+
         if chat_id not in self.locks: self.locks[chat_id] = []
         if 'night' not in self.locks[chat_id]:
             self.locks[chat_id].append('night')
-        await update.message.reply_text("🌙 *Night Mode ON:* Group chat is restricted to admins and owner!")
+        await context.bot.send_message(chat_id, "🌙 *Night Mode ON:* Group chat is restricted to admins and owner!", parse_mode=ParseMode.MARKDOWN)
 
     async def day_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
+
+        # DELETE THE COMMAND MESSAGE
+        try:
+            await update.message.delete()
+        except:
+            pass
+
         if chat_id in self.locks and 'night' in self.locks[chat_id]:
             self.locks[chat_id].remove('night')
-        await update.message.reply_text("☀️ *Day Mode ON:* Group is now open for everyone!")
+        await context.bot.send_message(chat_id, "☀️ *Day Mode ON:* Group is now open for everyone!", parse_mode=ParseMode.MARKDOWN)
     
     
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
@@ -897,6 +911,7 @@ class HeroBot:
             "🔹 **Send Msg to My OWNER:** Agar aapko Umang Sir se kaam hai, toh bas likhein: `'Umang se kaam h'` or `'Umang ko bulao'` or just say `'Umang'`. Main aapka message unhe direct forward kar dunga.\n\n"
             "🔹 **Neural Memory:** Mujhe kuch yaad dilane ke liye likhein: \n`remember this: [aapki baat]`\nMain use hamesha ke liye save kar lunga.\n\n"
             "🔹 **AI Chat:** Mujhse baat karne ke liye bss 'Hero' likhein ya mere message ka Reply karein.\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "📖 **To see full features, click on button below or just type /help .**"
         )
