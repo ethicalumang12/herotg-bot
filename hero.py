@@ -772,8 +772,8 @@ class HeroBot:
     async def lock_module(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
         lock_type = context.args[0].lower() if context.args else None
-        if lock_type not in ['stickers', 'forward', 'links']:
-            return await update.message.reply_text("Usage: `/lock stickers/forward/links`")
+        if lock_type not in ['stickers', 'forward', 'links', 'text', 'media']:
+            return await update.message.reply_text("Usage: `/lock stickers/forward/links/text/media`")
         
         chat_id = update.effective_chat.id
         if chat_id not in self.locks: self.locks[chat_id] = []
@@ -787,10 +787,10 @@ class HeroBot:
         lock_type = context.args[0].lower() if context.args else None
         
         # Validation for allowed types
-        allowed_types = ['stickers', 'forward', 'links', 'night']
+        allowed_types = ['stickers', 'forward', 'links', 'night', 'text', 'media']
         
         if lock_type not in allowed_types:
-            return await update.message.reply_text(f"❓ **Usage:** `/unlock [type]`\nAvailable: `stickers`, `forward`, `links`, `night`")
+            return await update.message.reply_text(f"❓ **Usage:** `/unlock [type]`\nAvailable: `stickers`, `forward`, `links`, `night`, 'text', 'media'")
 
         if chat_id in self.locks and lock_type in self.locks[chat_id]:
             self.locks[chat_id].remove(lock_type)
@@ -1328,6 +1328,7 @@ def main():
     app.add_handler(CommandHandler("tr", hero.translate_cmd))
     app.add_handler(CommandHandler("all", hero.tag_all))
     app.add_handler(CommandHandler("night", hero.night_mode))
+    app.add_handler(CommandHandler("day", hero.day_mode))
 
 
     app.add_handler(CommandHandler("start", hero.start))
@@ -1373,6 +1374,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
