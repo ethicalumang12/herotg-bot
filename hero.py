@@ -1260,7 +1260,7 @@ class HeroBot:
                 if not await self.check_admin(update, context):
                     await update.message.delete()
                     return
-        async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         owner_id = 123456789  # <--- Yahan apni (Owner) Numeric ID daalein
@@ -1387,6 +1387,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
