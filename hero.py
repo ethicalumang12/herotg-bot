@@ -859,30 +859,30 @@ class HeroBot:
         # Sending as a single message to avoid flood limits
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
-    async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not await self.check_admin(update, context): return
-        chat_id = update.effective_chat.id
-        
-        # Lock remove karein
-        if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            self.locks[chat_id].remove('night')
-        
-        # Permissions ON karein
-        await context.bot.set_chat_permissions(chat_id, ChatPermissions.all_permissions())
-        await update.message.reply_text("🌅 **Morning Mode:** Chat unlocked!")
+async def night_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This physically LOCKS the group for everyone except admins
+    lock_permissions = ChatPermissions(can_send_messages=False)
+    
+    await context.bot.set_chat_permissions(
+        chat_id=update.effective_chat.id, 
+        permissions=lock_permissions
+    )
+    await update.message.reply_text("🌙 *Night Mode ON:* Group has been locked!")
 
-    # 2. NIGHT MODE OFF KARNE KE LIYE
-    async def morning_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not await self.check_admin(update, context): return
-        chat_id = update.effective_chat.id
-        
-        # Lock remove karein
-        if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            self.locks[chat_id].remove('night')
-        
-        # Permissions ON karein
-        await context.bot.set_chat_permissions(chat_id, ChatPermissions.all_permissions())
-        await update.message.reply_text("🌅 **Morning Mode:** Chat unlocked!")
+async def day_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This UNLOCKS the group
+    unlock_permissions = ChatPermissions(
+        can_send_messages=True, 
+        can_send_media_messages=True,
+        can_send_other_messages=True,
+        can_add_web_page_previews=True
+    )
+    
+    await context.bot.set_chat_permissions(
+        chat_id=update.effective_chat.id, 
+        permissions=unlock_permissions
+    )
+    await update.message.reply_text("☀️ *Day Mode ON:* Group is now open!")
     
     
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
