@@ -860,6 +860,7 @@ class HeroBot:
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
     async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
         
         # Lock remove karein
@@ -1383,6 +1384,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
