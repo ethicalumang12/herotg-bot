@@ -1204,7 +1204,7 @@ class HeroBot:
 
             # Final human reply
             if reply['reply'] != "no_output":
-                await update.message.reply_text(ai_data['reply'])
+                await update.message.reply_text(reply['reply'])
             return
 
         # 6. Send message to owner
@@ -1346,6 +1346,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
