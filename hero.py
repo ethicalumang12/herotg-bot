@@ -1197,13 +1197,13 @@ class HeroBot:
             reply = await self.ai_reply(user.id, clean_text, self.load_memory(user.id))
             
             # Situational Reaction trigger
-            if ai_data['reaction'] != "no_reaction":
+            if reply['reaction'] != "no_reaction":
                 try:
                     await update.message.set_reaction(reaction=ai_data['reaction'])
                 except: pass # Permissions or old API ignore
 
             # Final human reply
-            if ai_data['reply'] != "no_output":
+            if reply['reply'] != "no_output":
                 await update.message.reply_text(ai_data['reply'])
             return
 
@@ -1346,5 +1346,6 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
