@@ -415,7 +415,7 @@ class HeroBot:
             ai_response = res.choices[0].message.content.strip()
             # Parsing logic to separate reaction and text
             reaction, reply_text = "no_reaction", ""
-            for line in raw_response.split('\n'):
+            for line in ai_response.split('\n'):
                 if line.startswith("REACTION:"): reaction = line.replace("REACTION:", "").strip()
                 elif line.startswith("REPLY:"): reply_text = line.replace("REPLY:", "").strip()
 
@@ -1346,6 +1346,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
