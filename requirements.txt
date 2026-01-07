@@ -1,3 +1,5 @@
+tavily
+duckduckgo-search
 telethon
 pyrogram
 requests
@@ -13,6 +15,7 @@ psutil
 yt-dlp
 gTTS
 flask
+
 
 
 
