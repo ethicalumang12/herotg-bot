@@ -1338,7 +1338,7 @@ def main():
     app.add_handler(CommandHandler("tr", hero.translate_cmd))
     app.add_handler(CommandHandler("all", hero.tag_all))
     app.add_handler(CommandHandler("night", hero.night_mode))
-    app.add_handler(CommandHandler("day", hero.morning_mode))
+    app.add_handler(CommandHandler("day", hero.day_mode))
 
 
     app.add_handler(CommandHandler("start", hero.start))
@@ -1384,6 +1384,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
