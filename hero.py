@@ -859,30 +859,30 @@ class HeroBot:
         # Sending as a single message to avoid flood limits
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     
-async def night_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This physically LOCKS the group for everyone except admins
-    lock_permissions = ChatPermissions(can_send_messages=False)
+    async def night_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # This physically LOCKS the group for everyone except admins
+        lock_permissions = ChatPermissions(can_send_messages=False)
     
-    await context.bot.set_chat_permissions(
-        chat_id=update.effective_chat.id, 
-        permissions=lock_permissions
-    )
-    await update.message.reply_text("🌙 *Night Mode ON:* Group has been locked!")
+        await context.bot.set_chat_permissions(
+            chat_id=update.effective_chat.id, 
+            permissions=lock_permissions
+        )
+        await update.message.reply_text("🌙 *Night Mode ON:* Group has been locked!")
 
-async def day_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This UNLOCKS the group
-    unlock_permissions = ChatPermissions(
-        can_send_messages=True, 
-        can_send_media_messages=True,
-        can_send_other_messages=True,
-        can_add_web_page_previews=True
-    )
+    async def day_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # This UNLOCKS the group
+        unlock_permissions = ChatPermissions(
+            can_send_messages=True, 
+            can_send_media_messages=True,
+            can_send_other_messages=True,
+            can_add_web_page_previews=True
+        )
     
-    await context.bot.set_chat_permissions(
-        chat_id=update.effective_chat.id, 
-        permissions=unlock_permissions
-    )
-    await update.message.reply_text("☀️ *Day Mode ON:* Group is now open!")
+        await context.bot.set_chat_permissions(
+            chat_id=update.effective_chat.id, 
+            permissions=unlock_permissions
+        )
+        await update.message.reply_text("☀️ *Day Mode ON:* Group is now open!")
     
     
     # -------- START COMMAND (PROFESSIONAL VERSION) --------
@@ -1384,6 +1384,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
