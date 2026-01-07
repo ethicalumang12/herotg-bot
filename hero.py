@@ -9,9 +9,16 @@ import asyncio
 import aiohttp
 import io
 import base64
+import shutil
 import psutil 
 import yt_dlp
+import tempfile
 
+from telegram import ChatPermissions
+from pyrogram import Client, filters
+from pyrogram.enums import MessageEntityType
+from pyrogram.types import Message
+from typing import Union
 from dotenv import load_dotenv
 from gtts import gTTS
 from telegram import  Update, Poll, ChatPermissions
@@ -59,16 +66,211 @@ logger = logging.getLogger(__name__)
 MEMORY_DIR, DOWNLOAD_DIR = "memory","downloads"
 CONFESSIONS_FILE = "confessions.txt"
 
-api_id = 24365702
-api_hash = "d78348a81d41643f51095deaffc1dc90"
-bot_token = "8075078295:AAFkAvadpHnypIm_jnUbXuq9S2XE-PYvbu0"
+TG_API_ID = 24365702
+TG_API_HASH = "d78348a81d41643f51095deaffc1dc90"
+YT_API_TOKEN = "CiQkC7zyoe"
+API_URL = "https://api.nubcoder.com/info"
+TG_BOT_TOKEN = "8075078295:AAFkAvadpHnypIm_jnUbXuq9S2XE-PYvbu0"
 os.makedirs(MEMORY_DIR, exist_ok=True)
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
-tele_client = TelegramClient("hero_session", api_id, api_hash)
+
+app = Client("yt_link_bot", api_id=TG_API_ID, api_hash=TG_API_HASH, bot_token=TG_BOT_TOKEN, ipv6=False)
 
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
+
+class YouTubeAPI:
+    def __init__(self):
+        self.base = "https://www.youtube.com/watch?v="
+        self.regex = r"(?:youtube\.com|youtu\.be)"
+        self.http_client = httpx.AsyncClient(timeout=30.0) 
+
+    async def _fetch_api_data(self, link: str) -> dict:
+        """Central function to call the NubCoder API and return JSON data."""
+        params = {"token": YT_API_TOKEN, "q": link}
+        print(f"[LOG] Fetching API data for: {link}")
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            response = await self.http_client.get(API_URL, params=params, headers=headers)
+            response.raise_for_status() 
+            data = response.json()
+            print(f"[LOG] API Data received: {data.get('title', 'Unknown Title')}")
+            return data
+        except Exception as e:
+            print(f"[ERROR] API Request failed: {e}")
+            if isinstance(e, httpx.HTTPStatusError):
+                print(f"[DEBUG] Response: {e.response.text}")
+            raise Exception(f"Could not fetch data from API: {e}")
+
+    async def url(self, message_1: Message) -> Union[str, None]:
+        messages = [message_1]
+        if message_1.reply_to_message:
+            messages.append(message_1.reply_to_message)
+        text = ""
+        offset = None
+        length = None
+        for message in messages:
+            if offset:
+                break
+            if message.entities:
+                for entity in message.entities:
+                    if entity.type == MessageEntityType.URL:
+                        text = message.text or message.caption
+                        offset, length = entity.offset, entity.length
+                        break
+            elif message.caption_entities:
+                for entity in message.caption_entities:
+                    if entity.type == MessageEntityType.TEXT_LINK:
+                        return entity.url
+        if offset in (None,):
+            return None
+        return text[offset : offset + length]
+
+    async def download(self, link: str, unique_id: str) -> str:
+        print("[LOG] Starting download process...")
+        data = await self._fetch_api_data(link)
+        video_url = data.get("url")
+        title = data.get("title", "video")
+        total_duration = float(data.get("duration", 0) or 0)
+        
+        if not video_url:
+            print("[ERROR] No video URL in API response.")
+            raise Exception("No video URL found in API response.")
+            
+        safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+        file_path = os.path.join(tempfile.gettempdir(), f"{unique_id}_{safe_title}.mp4")
+        print(f"[LOG] Temp file path: {file_path}")
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            if os.path.exists("ffmpeg.exe"):
+                ffmpeg_path = os.path.abspath("ffmpeg.exe")
+            elif os.path.exists("ffmpeg"):
+                ffmpeg_path = os.path.abspath("ffmpeg")
+            else:
+                try:
+                    import imageio_ffmpeg
+                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                except ImportError:
+                    ffmpeg_path = None
+
+        if not ffmpeg_path:
+            raise Exception("FFmpeg is not installed or not in PATH. Please download FFmpeg and place it in this folder.")
+        
+        print(f"[LOG] Downloading video using FFmpeg: {title}")
+
+        cmd = [
+            ffmpeg_path, 
+            '-hide_banner', 
+            '-loglevel', 'error',
+            '-progress', 'pipe:1',
+            '-nostats',
+            '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '-analyzeduration', '10000000',
+            '-probesize', '10000000',
+            '-rw_timeout', '20000000',
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_at_eof', '1',
+            '-reconnect_delay_max', '5',
+            '-i', video_url, 
+            '-c:v', 'copy',
+            '-c:a', 'copy',
+            '-threads', '4',
+            '-movflags', '+faststart', 
+            '-y', file_path
+        ]
+        
+        print(f"[LOG] Executing command: {' '.join(cmd)}")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        async def read_stderr():
+            while True:
+                line = await process.stderr.readline()
+                if not line:
+                    break
+                line_str = line.decode('utf-8', errors='ignore').strip()
+                if "Cannot reuse HTTP connection" in line_str:
+                    continue
+                if line_str:
+                    print(f"[FFMPEG] {line_str}")
+
+        stderr_task = asyncio.create_task(read_stderr())
+        
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            line = line.decode('utf-8', errors='ignore').strip()
+            if line.startswith('out_time_us='):
+                try:
+                    us = int(line.split('=')[1])
+                    current_sec = us / 1_000_000
+                    if total_duration > 0:
+                        percent = min(100, (current_sec / total_duration) * 100)
+                        bar_len = 30
+                        filled = int(bar_len * percent / 100)
+                        bar = '#' * filled + '-' * (bar_len - filled)
+                        print(f"\r[LOG] Progress: |{bar}| {percent:.1f}%", end='', flush=True)
+                    else:
+                        print(f"\r[LOG] Downloaded: {current_sec:.1f}s", end='', flush=True)
+                except ValueError:
+                    pass
+
+        await process.wait()
+        await stderr_task
+        print()
+        
+        if process.returncode != 0:
+            print("[ERROR] FFmpeg download failed.")
+            raise Exception("Download failed.")
+            
+        print(f"[LOG] Download completed: {file_path}")
+        return file_path, title
+
+
+yt_api = YouTubeAPI()
+
+@app.on_message(filters.text & ~filters.me)
+async def handle_message(client, message):
+    url = await yt_api.url(message)
+    if not url:
+        return
+
+    print(f"[LOG] Received URL: {url}")
+    msg = await message.reply_text("Downloading...")
+    try:
+        file_path, title = await yt_api.download(url, f"{message.chat.id}_{message.id}")
+        await msg.edit_text("Sending...")
+        print("[LOG] Uploading to Telegram...")
+        
+        async def progress(current, total):
+            if total > 0:
+                pass
+
+        await client.send_video(
+            message.chat.id, 
+            file_path, 
+            caption=f"{title}", 
+            supports_streaming=True,
+            progress=progress
+        )
+        await msg.delete()
+        print("[LOG] Upload success.")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("[LOG] Cleaned up file.")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        await msg.edit_text(f"Error")
+        
 # ---------------- BOT CLASS ----------------
 class HeroBot:
     def __init__(self, groq_key: str):
@@ -249,57 +451,7 @@ class HeroBot:
             return "❌ Audio transcription failed."
             
     # -------- DOWNLOADER LOGIC --------
-    async def upload_large_file(chat_id, filepath, caption):
-        """Uses Telethon to bypass the 50MB limit (up to 2GB)"""
-        async with tele_client:
-            await tele_client.send_file(
-                chat_id, 
-                filepath, 
-                caption=caption, 
-                supports_streaming=True
-            )
-    async def auto_download(self, url: str, update: Update):
-        msg = await update.message.reply_text("⏳ **HERO is initializing download...**")
-        
-        random_name = f"hero_{int(time.time())}"
-        filepath = os.path.join(DOWNLOAD_DIR, random_name)
-        
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f"{filepath}.%(ext)s",
-            'merge_output_format': 'mp4',
-            'quiet': True,
-        }
-
-        final_path = None
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 1. Extract Info
-                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
-                title = info.get('title', 'Video')
-                
-                await msg.edit_text(f"📥 **Downloading:**\n`{title[:50]}...`")
-                
-                # 2. Download via Thread (to prevent bot freezing)
-                await asyncio.to_thread(ydl.download, [url])
-                
-                # 3. Path Correction
-                final_path = ydl.prepare_filename(info).replace(".unknown_video", ".mp4")
-                if not os.path.exists(final_path):
-                    # Fallback check
-                    final_path = f"{filepath}.mp4"
-
-                await msg.edit_text("📤 **Download Complete. HERO is uploading (2GB Mode)...**")
-                
-                # 4. Use Telethon for the big upload
-                await upload_large_file(update.effective_chat.id, final_path, f"✅ **{title}**")
-                await msg.delete()
-
-        except Exception as e:
-            await msg.edit_text(f"❌ **HERO Error:** {str(e)[:100]}")
-        finally:
-            if final_path and os.path.exists(final_path):
-                os.remove(final_path)
+    
 
     
     
@@ -465,7 +617,8 @@ class HeroBot:
             return update.message.reply_to_message.from_user
         if context.args:
             target = context.args[0]
-            if target.startswith('@'): return target # Returns username string
+            if target.startswith('@'):
+                return target # Returns username string
             if target.isdigit():
                 try:
                     member = await context.bot.get_chat_member(update.effective_chat.id, int(target))
@@ -670,7 +823,7 @@ class HeroBot:
         user = await self.get_user(update, context) or update.effective_user
         uid = user.id if hasattr(user, 'id') else user
         pts = self.user_points.get(uid, 0)
-        rank = "Rookie 🥉" if pts < 100 else ("Hero 🥈" if pts < 500 else "Legend 🥇")
+        rank = "Rookie 🥉" if pts < 100 else ("Legend 🥈" if pts < 500 else "Hero 🥇")
 
         text = (
             f"👤 **PROFILE: {user.first_name if hasattr(user, 'first_name') else user}**\n"
@@ -706,16 +859,27 @@ class HeroBot:
     async def night_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
-        
+    
         if chat_id not in self.locks: self.locks[chat_id] = []
-        
+    
         if 'night' in self.locks[chat_id]:
+            # Night Mode OFF: Sabko permissions wapas de dein
             self.locks[chat_id].remove('night')
-            msg = "🌅 **Morning Mode:** Locks removed. Happy chatting!"
+            permissions = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+            msg = "🌅 **Morning Mode:** Sabhi members ab message bhej sakte hain!"
         else:
+            # Night Mode ON: Sabki permissions band kar dein
             self.locks[chat_id].append('night')
-            msg = "💤 **Night Mode ON:** Group is now under restricted watch."
-        
+            permissions = ChatPermissions(can_send_messages=False)
+            msg = "💤 **Night Mode ON:** Group lock ho gaya hai. Only owner can send messages!!"
+
+        # Telegram settings update karein
+        await context.bot.set_chat_permissions(chat_id, permissions)
         await update.message.reply_text(msg)
     
     
@@ -1096,6 +1260,21 @@ class HeroBot:
                 if not await self.check_admin(update, context):
                     await update.message.delete()
                     return
+        async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        owner_id = 123456789  # <--- Yahan apni (Owner) Numeric ID daalein
+
+        # Check karein agar night mode ON hai
+        if chat_id in self.locks and 'night' in self.locks[chat_id]:
+            # Agar message bhejnewala Owner nahi hai
+            if user_id != owner_id:
+                try:
+                    await update.message.delete()
+                    # Optional: User ko warn karein (Warning: ye bot ko spammy bana sakta hai)
+                except Exception as e:
+                    print(f"Delete Error: {e}")
+                return # Aage ka code (AI response etc.) mat chalne dein
         
     async def error(self, update, context):
         logger.error("Error:", exc_info=context.error)
@@ -1208,6 +1387,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
