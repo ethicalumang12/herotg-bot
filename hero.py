@@ -239,7 +239,7 @@ class YouTubeAPI:
 
 yt_api = YouTubeAPI()
 
-@app.on_message(filters.text & ~filters.me)
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 async def handle_message(client, message):
     url = await yt_api.url(message)
     if not url:
@@ -1388,6 +1388,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
