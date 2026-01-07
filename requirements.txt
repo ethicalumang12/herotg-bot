@@ -1,4 +1,10 @@
 telethon
+pyrogram
+requests
+Tgcrypto
+httpx
+ffmpeg
+imageio-ffmpeg
 python-telegram-bot
 groq
 python-dotenv
@@ -7,5 +13,6 @@ psutil
 yt-dlp
 gTTS
 flask
+
 
 
