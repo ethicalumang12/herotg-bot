@@ -1245,33 +1245,22 @@ class HeroBot:
                 return await context.bot.copy_message(chat_id, chat_id, self.notes[chat_id][note_name])
 
         # 9. Check Locks (Links)
-        if chat_id in self.locks and 'links' in self.locks[chat_id]:
-            if "http" in text or "t.me" in text:
-                if not await self.check_admin(update, context):
-                    await update.message.delete()
-                    return
-                
-        if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            # If Night Mode is ON, non-admins cannot send links or media
-            if "http" in text or update.message.sticker:
-                if not await self.check_admin(update, context):
-                    await update.message.delete()
-                    return
-    async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-        owner_id = 123456789  # <--- Yahan apni (Owner) Numeric ID daalein
 
-        # Check karein agar night mode ON hai
-        if chat_id in self.locks and 'night' in self.locks[chat_id]:
-            # Agar message bhejnewala Owner nahi hai
-            if user_id != owner_id:
-                try:
-                    await update.message.delete()
-                    # Optional: User ko warn karein (Warning: ye bot ko spammy bana sakta hai)
-                except Exception as e:
-                    print(f"Delete Error: {e}")
-                return # Aage ka code (AI response etc.) mat chalne dein
+        async def message_guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+            chat_id = update.effective_chat.id
+            user_id = update.effective_user.id
+            owner_id = 8232732731  # <--- Yahan apni (Owner) Numeric ID daalein
+
+            # Check karein agar night mode ON hai
+            if chat_id in self.locks and 'night' in self.locks[chat_id]:
+                # Agar message bhejnewala Owner nahi hai
+                if user_id != owner_id:
+                    try:
+                        await update.message.delete()
+                        # Optional: User ko warn karein (Warning: ye bot ko spammy bana sakta hai)
+                    except Exception as e:
+                        print(f"Delete Error: {e}")
+                    return # Aage ka code (AI response etc.) mat chalne dein
         
     async def error(self, update, context):
         logger.error("Error:", exc_info=context.error)
@@ -1385,6 +1374,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     main()
+
 
 
 
