@@ -86,157 +86,18 @@ GROQ_KEY = os.getenv("GROQ_API_KEY")
 BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 
 # ---------------- NEW AUTO DOWNLOADER CLASS ----------------
-class YouTubeAPI:
-    def __init__(self):
-        self.base = "https://www.youtube.com/watch?v="
-        self.regex = r"(?:youtube\.com|youtu\.be)"
-        self.http_client = httpx.AsyncClient(timeout=30.0) 
 
-    async def _fetch_api_data(self, link: str) -> dict:
-        """Central function to call the NubCoder API and return JSON data."""
-        params = {"token": YT_API_TOKEN, "q": link}
-        print(f"[LOG] Fetching API data for: {link}")
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, website Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            response = await self.http_client.get(API_URL, params=params, headers=headers)
-            response.raise_for_status() 
-            data = response.json()
-            print(f"[LOG] API Data received: {data.get('title', 'Unknown Title')}")
-            return data
-        except Exception as e:
-            print(f"[ERROR] API Request failed: {e}")
-            if isinstance(e, httpx.HTTPStatusError):
-                print(f"[DEBUG] Response: {e.response.text}")
-            raise Exception(f"Could not fetch data from API: {e}")
-
-    async def url(self, message_1: Update) -> Union[str, None]:
-        # Adjusted to work with python-telegram-bot Message objects
-        msg = message_1.message
-        messages = [msg]
-        if msg.reply_to_message:
-            messages.append(msg.reply_to_message)
-        
-        for m in messages:
-            if m.entities:
-                for entity in m.entities:
-                    if entity.type == "url":
-                        return m.text[entity.offset : entity.offset + entity.length]
-                    if entity.type == "text_link":
-                        return entity.url
-        return None
-
-    async def download(self, link: str, unique_id: str) -> str:
-        print("[LOG] Starting download process...")
-        data = await self._fetch_api_data(link)
-        video_url = data.get("url")
-        title = data.get("title", "video")
-        total_duration = float(data.get("duration", 0) or 0)
-        
-        if not video_url:
-            print("[ERROR] No video URL in API response.")
-            raise Exception("No video URL found in API response.")
-            
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-        file_path = os.path.join(tempfile.gettempdir(), f"{unique_id}_{safe_title}.mp4")
-        print(f"[LOG] Temp file path: {file_path}")
-
-        ffmpeg_path = shutil.which("ffmpeg")
-        if not ffmpeg_path:
-            if os.path.exists("ffmpeg.exe"):
-                ffmpeg_path = os.path.abspath("ffmpeg.exe")
-            elif os.path.exists("ffmpeg"):
-                ffmpeg_path = os.path.abspath("ffmpeg")
-            else:
-                try:
-                    import imageio_ffmpeg
-                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                except ImportError:
-                    ffmpeg_path = None
-
-        if not ffmpeg_path:
-            raise Exception("FFmpeg is not installed or not in PATH. Please download FFmpeg and place it in this folder.")
-        
-        print(f"[LOG] Downloading video using FFmpeg: {title}")
-
-        cmd = [
-            ffmpeg_path, 
-            '-hide_banner', 
-            '-loglevel', 'error',
-            '-progress', 'pipe:1',
-            '-nostats',
-            '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            '-analyzeduration', '10000000',
-            '-probesize', '10000000',
-            '-rw_timeout', '20000000',
-            '-reconnect', '1',
-            '-reconnect_streamed', '1',
-            '-reconnect_at_eof', '1',
-            '-reconnect_delay_max', '5',
-            '-i', video_url, 
-            '-c:v', 'copy',
-            '-c:a', 'copy',
-            '-threads', '4',
-            '-movflags', '+faststart', 
-            '-y', file_path
-        ]
-        
-        print(f"[LOG] Executing command: {' '.join(cmd)}")
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        async def read_stderr():
-            while True:
-                line = await process.stderr.readline()
-                if not line:
-                    break
-                line_str = line.decode('utf-8', errors='ignore').strip()
-                if "Cannot reuse HTTP connection" in line_str:
-                    continue
-                if line_str:
-                    print(f"[FFMPEG] {line_str}")
-
-        stderr_task = asyncio.create_task(read_stderr())
-        
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-            line = line.decode('utf-8', errors='ignore').strip()
-            if line.startswith('out_time_us='):
-                try:
-                    us = int(line.split('=')[1])
-                    current_sec = us / 1_000_000
-                    if total_duration > 0:
-                        percent = min(100, (current_sec / total_duration) * 100)
-                        bar_len = 30
-                        filled = int(bar_len * percent / 100)
-                        bar = '#' * filled + '-' * (bar_len - filled)
-                        print(f"\r[LOG] Progress: |{bar}| {percent:.1f}%", end='', flush=True)
-                    else:
-                        print(f"\r[LOG] Downloaded: {current_sec:.1f}s", end='', flush=True)
-                except ValueError:
-                    pass
-
-        await process.wait()
-        await stderr_task
-        print()
-        
-        if process.returncode != 0:
-            print("[ERROR] FFmpeg download failed.")
-            raise Exception("Download failed.")
-            
-        print(f"[LOG] Download completed: {file_path}")
-        return file_path, title
-
-yt_api = YouTubeAPI()
 
 # ---------------- BOT CLASS ----------------
 class HeroBot:
+    def get_display_name(self, message):
+        user = message.from_user
+
+        if user.username:
+            return user.username
+        if user.first_name:
+            return user.first_name
+        return "bhai"
     def __init__(self, groq_key: str):
         self.client = AsyncGroq(api_key=groq_key)
         # --- ADDED SEARCH CLIENT INITIALIZATION ---
@@ -337,15 +198,6 @@ class HeroBot:
             "Talk in an accent for the next 10 minutes.", "Send a random sticker to the 5th person in your contacts.",
             "Bark like a dog in a voice note."
         ]
-
-    def get_display_name(message):
-        user = message.from_user
-
-        if user.username:
-            return user.username
-        if user.first_name:
-            return user.first_name
-        return "bhai"
 
 
     # --- ADDED SEARCH METHOD ---
@@ -1187,31 +1039,7 @@ class HeroBot:
                 return
 
         # ---------------- INTEGRATED NEW AUTO DOWNLOADER LOGIC ----------------
-        video_url = await yt_api.url(update)
-        if video_url:
-            print(f"[LOG] Received URL: {video_url}")
-            msg = await update.message.reply_text("Downloading...")
-            try:
-                file_path, title = await yt_api.download(video_url, f"{chat_id}_{update.message.message_id}")
-                await msg.edit_text("Sending...")
-                print("[LOG] Uploading to Telegram...")
-                
-                await context.bot.send_video(
-                    chat_id=chat_id, 
-                    video=open(file_path, 'rb'), 
-                    caption=f"🎥 **{title}**", 
-                    supports_streaming=True,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                await msg.delete()
-                print("[LOG] Upload success.")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    print("[LOG] Cleaned up file.")
-                return # Stop further processing once downloaded
-            except Exception as e:
-                print(f"[ERROR] {e}")
-                await msg.edit_text(f"❌ Error: {e}")
+       
 
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
@@ -1405,6 +1233,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
