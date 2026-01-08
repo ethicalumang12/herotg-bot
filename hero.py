@@ -90,7 +90,19 @@ BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 
 # ---------------- BOT CLASS ----------------
 class HeroBot:
-    
+    def get_display_name(self, user_id: int, message=None):
+        # 1. Check if we have a name saved in long-term memory
+        memory_content = self.load_memory(user_id)
+        name_match = re.search(r"User Name:\s*(\w+)", memory_content)
+        if name_match:
+            return name_match.group(1)
+
+        # 2. Fallback to Telegram profile info
+        if message and message.from_user:
+            user = message.from_user
+            return user.first_name or user.username or "bhai"
+        
+        return "bhai"
     def __init__(self, groq_key: str):
         self.client = AsyncGroq(api_key=groq_key)
         # --- ADDED SEARCH CLIENT INITIALIZATION ---
@@ -100,22 +112,14 @@ class HeroBot:
         self.weather_key = os.getenv("OPENWEATHER_API_KEY")
         self.news_key = os.getenv("NEWS_API_KEY")
         self.context = {}  # Dictionary to store {user_id: [messages]}
-        self.MAX_CONTEXT = 50 # Remember last 50 messages
+        self.MAX_CONTEXT = 30 # Remember last 30 messages
         
         self.bot_start_time = time.time()
-        def get_display_name(self, message):
-            user = message.from_user
-
-            if user.username:
-                return user.username
-            if user.first_name:
-                return user.first_name
-            return "bhai"
+        
 
         # --- MODELS ---
         self.model_txt = "llama-3.1-8b-instant"  #"llama-3.1-70b-versatile"
         self.model_audio = "whisper-large-v3-turbo"
-        name = self.get_display_name(message)
 
         # Build the base AI personality prompt
         
@@ -136,8 +140,8 @@ class HeroBot:
             Your reply logic is strict and minimal. Greetings get greetings. Questions get direct answers only. Statements get brief acknowledgment. Achievements get short appreciation. Emotional messages always receive a reaction first and then a short matching reply. Dry replies like “ok”, “hmm”, “hn”, or 👍 get only a ❤️ reaction and no text output.
 
             Example logic patterns:
-            “good morning” → “Hii {name}, Good morning”
-            “hey” → “Heyy, kya haal hai?”
+            “good morning” → “Hyy {name}, Good morning”
+            “hey” → “Hii {name}, kya haal hai?”
             “I’m tired” → react 😢 + “Rest krlo thoda”
             “Work done” → “Nice, well done”
             “😂” → react 🤣 + “Same mood”
@@ -269,13 +273,22 @@ class HeroBot:
         self.user_points[user_id] = self.user_points.get(user_id, 0) + pts
 
     # -------- CORE AI (INTEGRATED SEARCH) --------
-    async def ai_reply(self, user_id: int, user_text: str, memory: str) -> dict:
+    async def ai_reply(self, user_id: int, user_text: str, memory: str, message=None) -> dict:
+        name_save_match = re.search(r"(?:my name is|mera naam|naam hai)\s+([a-zA-Z]+)", user_text.lower())
+        if name_save_match:
+            new_name = name_save_match.group(1).capitalize()
+            if f"User Name: {new_name}" not in memory:
+                self.save_memory(user_id, f"User Name: {new_name}")
+                memory += f"\nUser Name: {new_name}"
+        current_user_name = self.get_display_name(user_id, message)
+        personalized_prompt = self.get_system_prompt.replace("{name}", current_user_name)
+        
         # 1. Get current time for Real-time knowledge
         now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
         
         # --- ADDED SEARCH TRIGGER ---
         search_data = ""
-        live_triggers = ["today", "latest", "score", "news", "weather", "current", "who is", "price", "live"]
+        live_triggers = ["today", "latest", "score", "news", "weather", "current", "who is", "price", "live", "kon h", "kon hai", "ky h", "kya h", "kya hai", "ky hai", "search", "google", "dhund", "khojo", "find"]
         if any(word in user_text.lower() for word in live_triggers):
             search_data = await self.smart_web_search(user_text)
 
@@ -1078,7 +1091,7 @@ class HeroBot:
             clean_text = text.replace(f"@{context.bot.username}", "").strip()
             
             # AI data fetch karein
-            ai_data = await self.ai_reply(user_id, clean_text, self.load_memory(user_id))
+            ai_data = await self.ai_reply(user_id, clean_text, self.load_memory(user_id), update.message)
             
             # A. SITUATIONAL REACTION (User ke msg par)
             if ai_data.get('reaction') and ai_data['reaction'] != "no_reaction":
@@ -1234,6 +1247,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
