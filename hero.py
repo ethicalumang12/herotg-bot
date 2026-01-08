@@ -1397,7 +1397,7 @@ class HeroBot:
             for oid in owner_ids:
                 try:
                     await context.bot.send_message(chat_id=oid, text=report, parse_mode=ParseMode.MARKDOWN)
-                    await update.message.reply_text("✅ Message sent")
+                    await update.message.reply_text("Sojao Bache")
                 except Exception as e:
                     logger.error(f"❌ Failed to report to owner: {e}")
         
@@ -1516,6 +1516,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
