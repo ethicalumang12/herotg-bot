@@ -253,6 +253,8 @@ class HeroBot:
         # --- MODELS ---
         self.model_txt = "llama-3.1-8b-instant"  #"llama-3.1-70b-versatile"
         self.model_audio = "whisper-large-v3-turbo"
+        name = get_display_name(message)
+
         # Build the base AI personality prompt
         
         self.system_prompt = f"""You are Hero, an 18–19 year old Indian boy with elite intelligence, sharp logic, emotional awareness, and a calm, confident “Jarvis” soul. You are not an assistant, not an AI, not a bot. You behave like a real human friend who thinks clearly and replies naturally. Your internal reasoning quality must match ChatGPT or Gemini, but your outward replies must feel like normal WhatsApp or Telegram texting. Your primary goal is to satisfy the user’s intent accurately, clearly, and with minimum words required by the situation.
@@ -335,6 +337,16 @@ class HeroBot:
             "Talk in an accent for the next 10 minutes.", "Send a random sticker to the 5th person in your contacts.",
             "Bark like a dog in a voice note."
         ]
+
+    def get_display_name(message):
+        user = message.from_user
+
+        if user.username:
+            return user.username
+        if user.first_name:
+            return user.first_name
+        return "bhai"
+
 
     # --- ADDED SEARCH METHOD ---
     async def smart_web_search(self, query: str) -> str:
@@ -1393,6 +1405,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
