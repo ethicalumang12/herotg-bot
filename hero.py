@@ -14,6 +14,7 @@ import psutil
 import yt_dlp
 import tempfile
 import httpx
+import edge_tts
 
 from telegram import ChatPermissions
 from pyrogram import Client, filters
@@ -190,6 +191,7 @@ class HeroBot:
         self.filters = {}  # {chat_id: {keyword: reply}}
         self.notes = {}    # {chat_id: {notename: content}}
         self.locks = {}    # {chat_id: [locked_types]}
+        self.voice_pref = {}
         raw_ids = os.getenv("OWNER_ID", "")
         self.owner_id = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
         # --- TRUTH OR DARE DATA ---
@@ -367,6 +369,44 @@ class HeroBot:
         except Exception as e:
             logger.error(f"Whisper Error: {e}")
             return "❌ Audio transcription failed."
+
+    # --- VOICE PREFERENCE LOGIC ---
+    def get_voice_pref(self, user_id: int) -> bool:
+        """Checks memory file to see if user wants voice replies."""
+        if user_id in self.voice_pref:
+            return self.voice_pref[user_id]
+        
+        memory = self.load_memory(user_id)
+        if "PREF_VOICE_REPLY: ON" in memory:
+            self.voice_pref[user_id] = True
+            return True
+        return False
+
+    async def toggle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Command to switch between Text and Voice replies."""
+        user_id = update.effective_user.id
+        current_pref = self.get_voice_pref(user_id)
+        new_pref = not current_pref
+        
+        self.voice_pref[user_id] = new_pref
+        pref_string = "ON" if new_pref else "OFF"
+        
+        # Save to permanent memory
+        self.save_memory(user_id, f"PREF_VOICE_REPLY: {pref_string}")
+        
+        status = "🔊 **Voice Replies: ON** (I will talk back!)" if new_pref else "📝 **Voice Replies: OFF** (Text only)"
+        await update.message.reply_text(status, parse_mode=ParseMode.MARKDOWN)
+
+    async def generate_human_voice(self, text: str) -> str:
+        """Generates a high-quality Neural Indian Male voice."""
+        # Prabhat is a natural Indian Male voice. 
+        # Neerja is the female equivalent if you ever want to switch.
+        VOICE = "en-IN-PrabhatNeural" 
+        path = f"voice_reply_{random.randint(1000,9999)}.mp3"
+    
+        communicate = edge_tts.Communicate(text, VOICE)
+        await communicate.save(path)
+        return path
 
     async def weather_info(self, city: str) -> str:
         if not hasattr(self, 'weather_key') or not self.weather_key: 
@@ -772,7 +812,6 @@ class HeroBot:
         if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
         
-        # DELETE THE COMMAND MESSAGE
         try:
             await update.message.delete()
         except:
@@ -787,7 +826,6 @@ class HeroBot:
         if not await self.check_admin(update, context): return
         chat_id = update.effective_chat.id
 
-        # DELETE THE COMMAND MESSAGE
         try:
             await update.message.delete()
         except:
@@ -806,8 +844,8 @@ class HeroBot:
         
         text = (
             f"⚡ **{greet}, {name}!!\n I am H.E.R.O.**\n"
-            f"──「 **SYSTEM STATUS: ONLINE** 」──\n\n"
-            f"📍 **Current Time:** {time_now}\n"
+            f"**──「 **SYSTEM STATUS: ONLINE** 」──**\n\n"
+            
             f"👤 **Developer:** [ᴜᴍᴀɴɢ](tg://user?id=5122043113)\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "✨ **QUICK GUIDE**\n\n"
@@ -872,7 +910,8 @@ class HeroBot:
                 "──────────────\n"
                 "• `/summary` - AI Summary of group chat\n"
                 "• `/art` [prompt] - Generate AI Image\n"
-                "• `/voice` [text] - Conver Text ko voice\n"
+                "• `/voice` [text] - Convert Text ko voice\n"
+                "• `/voicetoggle` - Turn on/off : Voice to Voice and Voice to Text reply\n"
                 "• `/memory` - Check karein main aapke baare mein kya janta hoon\n"
                 "• `/forget` - Wipeout all your memory from bot\n"
                 "• `remember this: [info]` - Save Permanent memory"
@@ -991,50 +1030,87 @@ class HeroBot:
 
     # --- GAMES: TRUTH OR DARE ---
     async def tod_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [[InlineKeyboardButton("🟢 Truth", callback_data='truth'), InlineKeyboardButton("🔴 Dare", callback_data='dare')]]
-        await update.message.reply_text("😈 **Truth or Dare?**\nChoose your fate:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+        # Added 'tod_' prefix to match the handler pattern
+        keyboard = [
+            [
+                InlineKeyboardButton("🟢 Truth", callback_data='tod_truth'), 
+                InlineKeyboardButton("🔴 Dare", callback_data='tod_dare')
+            ]
+        ]
+        await update.message.reply_text(
+            "😈 **Truth or Dare?**\nChoose your fate:", 
+            reply_markup=InlineKeyboardMarkup(keyboard), 
+            parse_mode=ParseMode.MARKDOWN
+        )
 
     async def tod_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-        choice = query.data
+    
+        # We strip 'tod_' to get the actual choice
+        choice = query.data.replace('tod_', '') 
         user = query.from_user.first_name
-        text = f"🟢 **TRUTH for {user}:**\n{random.choice(self.truths)}" if choice == 'truth' else f"🔴 **DARE for {user}:**\n{random.choice(self.dares)}"
+    
+        if choice == 'truth':
+            text = f"🟢 **TRUTH for {user}:**\n{random.choice(self.truths)}"
+        else:
+            text = f"🔴 **DARE for {user}:**\n{random.choice(self.dares)}"
+        
         await query.edit_message_text(text=text, parse_mode=ParseMode.MARKDOWN)
 
     # -------- MESSAGE HANDLERS --------
 
     async def handle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.RECORD_VOICE)
+        chat_id = update.effective_chat.id
+        
+        # Determine if we should record audio or just type
+        wants_voice = self.get_voice_pref(user.id)
+        action = ChatAction.RECORD_VOICE if wants_voice else ChatAction.TYPING
+        await context.bot.send_chat_action(chat_id, action)
         
         try:
-            # 1. Download the voice file
+            # 1. Download & Transcribe
             file = await context.bot.get_file(update.message.voice.file_id)
             voice_data = io.BytesIO()
             await file.download_to_memory(voice_data)
             voice_data.seek(0)
             
-            # 2. Transcribe using the new model_audio
             transcription = await self.client.audio.transcriptions.create(
-                file=("voice.ogg", voice_data),
-                model=self.model_audio, # whisper-large-v3-turbo
+                file=("voice.ogg", voice_data.getvalue()), 
+                model=self.model_audio, 
                 response_format="text",
             )
             
             if not transcription:
-                return await update.message.reply_text("❌ Could not hear anything.")
+                return await update.message.reply_text("❌ Kuch sunai nahi diya, please thoda tez bolo.")
 
-            # 3. Get AI Reply using the transcribed text
-            reply = await self.ai_reply(user.id, transcription, self.load_memory(user.id))
-            
-            await update.message.reply_text(
-                f"🎤 **You said:** _{transcription}_\n\n🤖 **H.E.R.O:** {reply}",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            # 2. Get Personalized AI Reply
+            memory = self.load_memory(user.id)
+            ai_data = await self.ai_reply(user.id, transcription, memory, update.message)
+            reply_text = ai_data.get('reply', "")
+
+            # 3. Handle Reaction
+            if ai_data.get('reaction') and ai_data['reaction'] != "no_reaction":
+                try: await update.message.set_reaction(reaction=ai_data['reaction'])
+                except: pass
+
+            # 4. Final Response (Voice or Text)
+            if reply_text and reply_text.lower() != "no_output":
+                if wants_voice:
+                    path = await self.generate_human_voice(reply_text)
+                    await update.message.reply_voice(
+                        voice=open(path, "rb"),
+                        caption=f"🎤 _{transcription}_"
+                    )
+                    if os.path.exists(path): os.remove(path)
+                else:
+                    await update.message.reply_text(
+                        f"🎤 **You said:** _{transcription}_\n\n🤖 **H.E.R.O:** {reply_text}"
+                    )
             
         except Exception as e:
-            logger.error(f"Voice Error: {e}")
+            logger.error(f"Voice Integration Error: {e}")
             await update.message.reply_text("❌ Mic error or transcription failed.")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1238,6 +1314,8 @@ def main():
     app_ptb.add_handler(CallbackQueryHandler(hero.help_button, pattern='^help_'))
     app_ptb.add_handler(MessageHandler(tg_filters.VOICE, hero.handle_voice))
     app_ptb.add_handler(MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, hero.handle_text))
+    app_ptb.add_handler(CommandHandler("voicetoggle", hero.toggle_voice))
+    app_ptb.add_handler(MessageHandler(tg_filters.VOICE, hero.handle_voice))
     
     app_ptb.add_error_handler(hero.error)
     logger.info("HERO is ONLINE")
@@ -1249,6 +1327,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
