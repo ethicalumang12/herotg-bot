@@ -90,14 +90,7 @@ BOT_TOKEN= os.getenv("TELEGRAM_BOT_TOKEN")
 
 # ---------------- BOT CLASS ----------------
 class HeroBot:
-    def get_display_name(self, message):
-        user = message.from_user
-
-        if user.username:
-            return user.username
-        if user.first_name:
-            return user.first_name
-        return "bhai"
+    
     def __init__(self, groq_key: str):
         self.client = AsyncGroq(api_key=groq_key)
         # --- ADDED SEARCH CLIENT INITIALIZATION ---
@@ -110,11 +103,19 @@ class HeroBot:
         self.MAX_CONTEXT = 50 # Remember last 50 messages
         
         self.bot_start_time = time.time()
+        def get_display_name(self, message):
+            user = message.from_user
+
+            if user.username:
+                return user.username
+            if user.first_name:
+                return user.first_name
+            return "bhai"
 
         # --- MODELS ---
         self.model_txt = "llama-3.1-8b-instant"  #"llama-3.1-70b-versatile"
         self.model_audio = "whisper-large-v3-turbo"
-        name = get_display_name(message)
+        name = self.get_display_name(message)
 
         # Build the base AI personality prompt
         
@@ -1233,6 +1234,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
