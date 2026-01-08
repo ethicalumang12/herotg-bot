@@ -1378,7 +1378,7 @@ class HeroBot:
             return
 
         # 6. Send message to owner
-        triggers = ["umang se kaam h", "umang ko bulao", "umang ko bolna", "umang se kaam hai", "owner se bolo", "umang suno","umang",]
+        triggers = ["umang se kaam h", "umang ko bulao", "umang ko bolna", "umang se kaam hai", "owner se bolo", "umang suno","umang"]
         if any(word in text for word in triggers):
             owner_id_raw = os.getenv("OWNER_ID", "")
             owner_ids = [int(i.strip()) for i in owner_id_raw.split(",") if i.strip().isdigit()]
@@ -1516,6 +1516,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
