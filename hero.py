@@ -282,7 +282,7 @@ class HeroBot:
                 self.save_memory(user_id, f"User Name: {new_name}")
                 memory += f"\nUser Name: {new_name}"
         current_user_name = self.get_display_name(user_id, message)
-        personalized_prompt = self.get_system_prompt.replace("{name}", current_user_name)
+        personalized_prompt = self.system_prompt.replace("{name}", current_user_name)
         
         # 1. Get current time for Real-time knowledge
         now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
@@ -1248,6 +1248,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
