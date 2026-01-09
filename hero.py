@@ -105,6 +105,16 @@ class HeroBot:
             user = message.from_user
             return user.first_name or user.username or "bhai"
         return "bhai"
+
+    def get_greeting(self):
+        IST = pytz.timezone('Asia/Kolkata')
+        hour = datetime.datetime.now(IST).hour
+        if hour < 12:
+            return "Good Morning 🌅"
+        elif 12 <= hour < 18:
+            return "Good Afternoon ☀️"
+        else:
+            return "Good Evening 🌆"
         
     def __init__(self, groq_key: str):
         self.client = AsyncGroq(api_key=groq_key)
@@ -123,6 +133,8 @@ class HeroBot:
         # --- MODELS ---
         self.model_txt = "llama-3.1-8b-instant"  #"llama-3.1-70b-versatile"
         self.model_audio = "whisper-large-v3-turbo"
+        name = update.effective_user.first_name
+        greet = self.get_greeting()
 
         # Build the base AI personality prompt
         
@@ -144,7 +156,7 @@ class HeroBot:
             Your reply logic is strict and minimal. Greetings get greetings. Questions get direct answers only. Statements get brief acknowledgment. Achievements get short appreciation. Emotional messages always receive a reaction first and then a short matching reply. Dry replies like “ok”, “hmm”, “hn”, or 👍 get only a ❤️ reaction and no text output.
 
             Example logic patterns: change according to you is allowed!!
-            “good morning” → “Hyy {name}, Good morning”
+            “good morning” → “Hyy {name}, {greet}”
             “hey hero” → “Hii {name}, kya haal hai?”
             “I’m tired” → react 😢 + “Rest krlo thoda”
             “Work done” → “Nice, well done”
@@ -233,18 +245,7 @@ class HeroBot:
         except Exception as e:
             print(f"[SEARCH] DuckDuckGo failed: {e}")
             return "No live data found."
-
-    def get_greeting(self):
-        IST = pytz.timezone('Asia/Kolkata')
-        hour = datetime.datetime.now(IST).hour
-        if hour < 12:
-            return "Good Morning 🌅"
-        elif 12 <= hour < 18:
-            return "Good Afternoon ☀️"
-        else:
-            return "Good Evening 🌆"
         
-    
 
     # -------- HELPER: ASYNC FETCH --------
     async def fetch_async(self, url: str, json_response: bool = True, params: dict = None):
@@ -298,7 +299,7 @@ class HeroBot:
         
         # --- ADDED SEARCH TRIGGER ---
         search_data = ""
-        live_triggers = ["today", "latest", "score", "news", "weather", "current", "who is", "price", "live", "kon h", "kon hai", "ky h", "kya h", "kya hai", "ky hai", "search", "google", "dhund", "khojo", "find"]
+        live_triggers = ["today", "latest", "score", "news", "weather", "current", "who is", "price", "live", "kon h", "kon hai", "ky h", "kya h", "kya hai", "ky hai", "search", "google", "dhund", "khojo", "find", "kyu", "ky", "kya"]
         if any(word in user_text.lower() for word in live_triggers):
             search_data = await self.smart_web_search(user_text)
 
@@ -466,7 +467,7 @@ class HeroBot:
         except Exception as e:
             logger.error(f"Error saving confession: {e}")
     async def get_confessions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Replace 'YOUR_USER_ID' with your actual Telegram ID (e.g., 12345678)
+        
         if update.effective_user.id != 8439434171:
             return await update.message.reply_text("❌ Unauthorized.")
         
@@ -1143,8 +1144,8 @@ class HeroBot:
                 return
 
         # ---------------- INTEGRATED NEW AUTO DOWNLOADER LOGIC ----------------
-       
-
+        # 1. 
+        
         # 2. AUTO CALCULATOR CHECK
         if re.match(r'^\s*\d+[\s\+\-\*\/\(\)\.xX]+\d+\s*$', text):
             try:
@@ -1201,8 +1202,16 @@ class HeroBot:
         # 6. Send message to owner
         triggers = ["umang se kaam h", "umang ko bulao", "umang ko bolna", "umang se kaam hai", "owner se bolo", "umang suno","umang",]
         if any(word in text for word in triggers):
+            print(f"[DEBUG] Trigger detected: {text}") # Check if code reaches here
+            
             owner_id_raw = os.getenv("OWNER_ID", "")
+            print(f"[DEBUG] Raw Owner ID from env: {owner_id_raw}")
+            
             owner_ids = [int(i.strip()) for i in owner_id_raw.split(",") if i.strip().isdigit()]
+            print(f"[DEBUG] Processed IDs: {owner_ids}")
+            
+            user = update.effective_user
+            username = f"@{user.username}" if user.username else "No Username"
             link = "Private Chat"
             if update.effective_chat.type != 'private':
                 try: link = await update.effective_chat.export_invite_link()
@@ -1215,12 +1224,17 @@ class HeroBot:
                 f"🔗 **Link:** {link}\n"
                 f"💬 **Message:** {update.message.text}"
             )
+            success = False
             for oid in owner_ids:
                 try:
-                    await context.bot.send_message(chat_id=oid, text=report, parse_mode=ParseMode.MARKDOWN)
-                    await update.message.reply_text("Sojao Bache")
+                    await context.bot.send_message(chat_id=oid, text=report_text, parse_mode=ParseMode.MARKDOWN)
+                    success = True
                 except Exception as e:
-                    logger.error(f"❌ Failed to report to owner: {e}")
+                    logger.error(f"❌ Failed to report to owner {oid}: {e}")
+
+            if success:
+                await update.message.reply_text("Theek hai, Umang Sir ko bata diya hai! ✅")
+                return
         
         # 7. Check Filters
         if chat_id in self.filters:
@@ -1339,6 +1353,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
