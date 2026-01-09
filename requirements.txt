@@ -16,6 +16,8 @@ yt-dlp
 gTTS
 flask
 edge_tts
+pytz
+
 
 
 
