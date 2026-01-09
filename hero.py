@@ -15,6 +15,7 @@ import yt_dlp
 import tempfile
 import httpx
 import edge_tts
+import pytz
 
 from telegram import ChatPermissions
 from pyrogram import Client, filters
@@ -215,8 +216,10 @@ class HeroBot:
         """Tavily search with DuckDuckGo fallback."""
         try:
             if self.tavily_client:
-                print(f"[SEARCH] Trying Tavily for: {query}")
-                response = await asyncio.to_thread(self.tavily_client.search, query=query, search_depth="basic", max_results=3)
+                current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+                optimized_query = f"{query} news {current_date}"
+                print(f"[SEARCH] Trying Tavily for: {optimized_query}")
+                response = await asyncio.to_thread(self.tavily_client.search, query=optimized_query, search_depth="advanced", max_results=5)
                 results = [f"{res['title']}: {res['content']}" for res in response['results']]
                 return "\n".join(results)
         except Exception as e:
@@ -232,7 +235,8 @@ class HeroBot:
             return "No live data found."
 
     def get_greeting(self):
-        hour = datetime.datetime.now().hour
+        IST = pytz.timezone('Asia/Kolkata')
+        hour = datetime.datetime.now(IST).hour
         if hour < 12:
             return "Good Morning 🌅"
         elif 12 <= hour < 18:
@@ -289,7 +293,8 @@ class HeroBot:
         personalized_prompt = self.system_prompt.replace("{name}", current_user_name)
         
         # 1. Get current time for Real-time knowledge
-        now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
+        IST = pytz.timezone('Asia/Kolkata')
+        now = datetime.datetime.now(IST).strftime("%A, %d %B %Y, %I:%M %p")
         
         # --- ADDED SEARCH TRIGGER ---
         search_data = ""
@@ -302,6 +307,8 @@ class HeroBot:
             f"{self.system_prompt}\n"
             f"Current Real-time: {now}\n"
             f"Internet Search Context: {search_data}\n"
+            "INSTRUCTION: If the user asks for news, scores, or today's events, "
+            "STRICTLY use the SEARCH RESULTS above. Do not guess or use old data."
             "Keep replies short and conversational."
         )
 
@@ -431,10 +438,13 @@ class HeroBot:
         if not self.news_key: return "❌ News API key not set."
         url = "https://newsapi.org/v2/top-headlines"
         try:
-            res = await self.fetch_async(url, params={"country": "us", "apiKey": self.news_key})
-            headlines = [a["title"] for a in res["articles"][:3]]
-            return "📰 Top News:\n" + "\n".join(f"• {h}" for h in headlines)
-        except: return "❌ News fetch failed."
+            res = await self.fetch_async(url, params={"country": "in", "apiKey": self.news_key, "pageSize": 5})
+            if not res.get("articles"): return "Nayi news nahi mil rahi abhi."
+            
+            headlines = [a["title"] for a in res["articles"]]
+            return "📰 **Top News India Today:**\n\n" + "\n".join(f"• {h}" for h in headlines)
+        except: 
+            return "❌ News fetch failed. Tavily se try kar raha hoon..."
 
     async def generate_art(self, desc: str) -> bytes or str:
         url = f"https://image.pollinations.ai/prompt/{desc}"
@@ -841,7 +851,8 @@ class HeroBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = update.effective_user.first_name
         greet = self.get_greeting()
-        time_now = datetime.datetime.now().strftime('%I:%M %p')
+        IST = pytz.timezone('Asia/Kolkata')
+        time_now = datetime.datetime.now(IST).strftime('%I:%M %p')
         
         text = (
             f"⚡ **{greet}, {name}!!\n I am H.E.R.O.**\n"
@@ -1328,6 +1339,7 @@ if __name__ == "__main__":
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
+
 
 
 
